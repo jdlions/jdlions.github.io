@@ -1,21 +1,11 @@
 # Security Policy
 
-## Supported Versions
+## Reporting a vulnerability
 
-Use this section to tell people about which versions of your project are
-currently being supported with security updates.
+Do not open a public issue containing student information, credentials, tokens, unpublished drafts, or exploit details. Contact the repository maintainers privately through the contact channel listed on the public website.
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 5.1.x   | :white_check_mark: |
-| 5.0.x   | :x:                |
-| 4.0.x   | :white_check_mark: |
-| < 4.0   | :x:                |
+## Data policy
 
-## Reporting a Vulnerability
+This GitHub Pages repository is public and contains only public website content and explicitly fictional development fixtures. Real student identities, drafts, editor notes, photographs, Google account data, OAuth tokens, API credentials, and backend secrets must never be committed.
 
-Use this section to tell people how to report a vulnerability.
-
-Tell them where to go, how often they can expect to get an update on a
-reported vulnerability, what to expect if the vulnerability is accepted or
-declined, etc.
+Phase 1 authentication and authorization are development mocks and must not be treated as security. Before handling real editorial material, deploy a private backend that validates Google tokens and current Classroom membership server-side for each operation, issues secure sessions, and persists private data outside GitHub.
