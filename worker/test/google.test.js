@@ -60,15 +60,22 @@ test('missing teacher and student memberships return membership_required', async
 });
 
 test('Classroom debug log contains only configured ID and course ID/name data', async () => {
+  const requested = [];
   globalThis.fetch = async (url, init) => {
-    assert.match(url, /fields=courses\(id,name\)/);
+    requested.push(url);
+    const parsed = new URL(url);
+    assert.equal(parsed.origin, 'https://classroom.googleapis.com');
+    assert.equal(parsed.pathname, '/v1/courses');
+    assert.equal(parsed.searchParams.get('courseStates'), 'ACTIVE');
+    assert.equal(parsed.searchParams.get('fields'), 'nextPageToken,courses(id,name)');
+    assert.equal(parsed.searchParams.has('courseId'), false);
+    assert.equal(url.includes('course-1'), false);
     assert.equal(init.headers.Authorization, 'Bearer secret-token');
     return jsonResponse({
       courses: [
         { id: 'course-1', name: 'Newspaper', ownerId: 'private-owner' },
         { id: 'course-2', name: 'English', email: 'private@example.com' }
-      ],
-      nextPageToken: 'private-page-token'
+      ]
     });
   };
   const entries = [];
@@ -79,6 +86,7 @@ test('Classroom debug log contains only configured ID and course ID/name data', 
 
   await logClassroomCourseDebug('course-1', 'secret-token', logger);
 
+  assert.equal(requested.length, 1);
   assert.equal(entries.length, 1);
   assert.deepEqual(JSON.parse(entries[0]), {
     event: 'classroom_course_debug',
@@ -91,6 +99,36 @@ test('Classroom debug log contains only configured ID and course ID/name data', 
   });
   assert.equal(entries[0].includes('secret-token'), false);
   assert.equal(entries[0].includes('private'), false);
+});
+
+test('Classroom debug course listing follows pagination without logging page tokens', async () => {
+  const requested = [];
+  globalThis.fetch = async url => {
+    requested.push(url);
+    const pageToken = new URL(url).searchParams.get('pageToken');
+    if (!pageToken) return jsonResponse({ courses: [{ id: 'course-1', name: 'Newspaper' }], nextPageToken: 'page-secret' });
+    assert.equal(pageToken, 'page-secret');
+    return jsonResponse({ courses: [{ id: 'course-2', name: 'Photography' }] });
+  };
+  const entries = [];
+
+  await logClassroomCourseDebug('course-2', 'secret-token', {
+    info: entry => entries.push(entry),
+    warn: entry => entries.push(entry)
+  });
+
+  assert.equal(requested.length, 2);
+  assert.deepEqual(JSON.parse(entries[0]), {
+    event: 'classroom_course_debug',
+    configuredCourseId: 'course-2',
+    configuredCourseVisible: true,
+    courses: [
+      { id: 'course-1', name: 'Newspaper' },
+      { id: 'course-2', name: 'Photography' }
+    ]
+  });
+  assert.equal(entries[0].includes('page-secret'), false);
+  assert.equal(entries[0].includes('secret-token'), false);
 });
 
 test('Google API status mapping preserves actionable client errors and normalizes upstream failures', async t => {

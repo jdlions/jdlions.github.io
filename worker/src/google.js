@@ -1,4 +1,5 @@
 const GOOGLE_API = 'https://www.googleapis.com';
+const CLASSROOM_API = 'https://classroom.googleapis.com';
 
 function googleErrorStatus(status) {
   if ([401, 403, 404, 429].includes(status)) return status;
@@ -27,8 +28,27 @@ export async function userInfo(accessToken) { return googleFetch('/oauth2/v3/use
 // configured course ID has been verified. Never add account or token fields here.
 export async function logClassroomCourseDebug(configuredCourseId, accessToken, logger = console) {
   try {
-    const result = await googleFetch('/classroom/v1/courses?courseStates=ACTIVE&fields=courses(id,name)', accessToken);
-    const courses = (result.courses || []).map(({ id, name }) => ({ id, name }));
+    const courses = [];
+    let pageToken;
+    do {
+      const query = new URLSearchParams({
+        courseStates: 'ACTIVE',
+        fields: 'nextPageToken,courses(id,name)'
+      });
+      if (pageToken) query.set('pageToken', pageToken);
+      const response = await fetch(`${CLASSROOM_API}/v1/courses?${query}`, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      if (!response.ok) {
+        throw Object.assign(new Error(`Google Classroom API request failed (${response.status}).`), {
+          status: googleErrorStatus(response.status),
+          code: 'google_api_error'
+        });
+      }
+      const result = await response.json();
+      courses.push(...(result.courses || []).map(({ id, name }) => ({ id, name })));
+      pageToken = result.nextPageToken;
+    } while (pageToken);
     logger.info(JSON.stringify({
       event: 'classroom_course_debug',
       configuredCourseId,
