@@ -1,10 +1,15 @@
 const GOOGLE_API = 'https://www.googleapis.com';
 
+function googleErrorStatus(status) {
+  if ([401, 403, 404, 429].includes(status)) return status;
+  if (status >= 500) return 502;
+  return 502;
+}
+
 async function googleFetch(path, accessToken, init = {}) {
   const response = await fetch(`${GOOGLE_API}${path}`, { ...init, headers: { Authorization: `Bearer ${accessToken}`, ...init.headers } });
   if (!response.ok) {
-    const detail = await response.text();
-    throw Object.assign(new Error(`Google API request failed (${response.status}).`), { status: response.status === 403 ? 403 : 502, code: 'google_api_error', detail: detail.slice(0, 500) });
+    throw Object.assign(new Error(`Google API request failed (${response.status}).`), { status: googleErrorStatus(response.status), code: 'google_api_error' });
   }
   return response.status === 204 ? null : response.json();
 }
