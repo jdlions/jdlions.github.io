@@ -1,5 +1,5 @@
 import { clearCookie, cookie, randomToken, requireTrustedOrigin, sanitizeHtml, seal, setCookie, STATE_COOKIE, SESSION_COOKIE, unseal } from './security.js';
-import { classroom, exchangeCode, logClassroomCourseDebug, readDoc, resolveMembership, uploadToDrive, userInfo } from './google.js';
+import { classroom, exchangeCode, readDoc, resolveMembership, uploadToDrive, userInfo } from './google.js';
 import { repository } from './repository.js';
 
 const SESSION_SECONDS = 45 * 60;
@@ -57,7 +57,6 @@ async function callback(request, env) {
   if (url.searchParams.get('error')) throw Object.assign(new Error('Google sign-in was cancelled or denied.'), { status: 401, code: 'oauth_denied' });
   const code = url.searchParams.get('code'); if (!code) throw Object.assign(new Error('OAuth authorization code is missing.'), { status: 400, code: 'oauth_code_missing' });
   const tokens = await exchangeCode(code, env, saved.verifier);
-  await logClassroomCourseDebug(env.NEWSPAPER_CLASSROOM_ID, tokens.access_token);
   const [identity, membership] = await Promise.all([userInfo(tokens.access_token), resolveMembership(env.NEWSPAPER_CLASSROOM_ID, tokens.access_token)]);
   const expires = Math.min(Date.now() + SESSION_SECONDS * 1000, Date.now() + Number(tokens.expires_in || SESSION_SECONDS) * 1000);
   const value = await seal({ sub: identity.sub, name: identity.name, email: identity.email, role: membership.role, studentId: membership.studentId, classroomUserId: membership.classroomUserId, courseId: env.NEWSPAPER_CLASSROOM_ID, accessToken: tokens.access_token, exp: expires }, env.SESSION_SECRET);

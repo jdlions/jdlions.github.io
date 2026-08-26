@@ -15,6 +15,14 @@ async function googleFetch(path, accessToken, init = {}) {
   return response.status === 204 ? null : response.json();
 }
 
+async function classroomFetch(path, accessToken, init = {}) {
+  const response = await fetch(`${CLASSROOM_API}${path}`, { ...init, headers: { Authorization: `Bearer ${accessToken}`, ...init.headers } });
+  if (!response.ok) {
+    throw Object.assign(new Error(`Google Classroom API request failed (${response.status}).`), { status: googleErrorStatus(response.status), code: 'google_api_error' });
+  }
+  return response.status === 204 ? null : response.json();
+}
+
 export async function exchangeCode(code, env, verifier) {
   const body = new URLSearchParams({ code, client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET, redirect_uri: env.OAUTH_REDIRECT_URI, grant_type: 'authorization_code', code_verifier: verifier });
   const response = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
@@ -24,64 +32,23 @@ export async function exchangeCode(code, env, verifier) {
 
 export async function userInfo(accessToken) { return googleFetch('/oauth2/v3/userinfo', accessToken); }
 
-// TEMPORARY CLASSROOM DEBUG: remove this helper and its callback call after the
-// configured course ID has been verified. Never add account or token fields here.
-export async function logClassroomCourseDebug(configuredCourseId, accessToken, logger = console) {
-  try {
-    const courses = [];
-    let pageToken;
-    do {
-      const query = new URLSearchParams({
-        courseStates: 'ACTIVE',
-        fields: 'nextPageToken,courses(id,name)'
-      });
-      if (pageToken) query.set('pageToken', pageToken);
-      const response = await fetch(`${CLASSROOM_API}/v1/courses?${query}`, {
-        headers: { Authorization: `Bearer ${accessToken}` }
-      });
-      if (!response.ok) {
-        throw Object.assign(new Error(`Google Classroom API request failed (${response.status}).`), {
-          status: googleErrorStatus(response.status),
-          code: 'google_api_error'
-        });
-      }
-      const result = await response.json();
-      courses.push(...(result.courses || []).map(({ id, name }) => ({ id, name })));
-      pageToken = result.nextPageToken;
-    } while (pageToken);
-    logger.info(JSON.stringify({
-      event: 'classroom_course_debug',
-      configuredCourseId,
-      configuredCourseVisible: courses.some(course => course.id === configuredCourseId),
-      courses
-    }));
-  } catch (error) {
-    logger.warn(JSON.stringify({
-      event: 'classroom_course_debug_failed',
-      configuredCourseId,
-      status: error.status || 500,
-      code: error.code || 'internal_error'
-    }));
-  }
-}
-
 async function membership(path, accessToken) {
-  try { const result = await googleFetch(path, accessToken); return result.students?.[0] || result.teachers?.[0] || null; }
+  try { const result = await classroomFetch(path, accessToken); return result.students?.[0] || result.teachers?.[0] || null; }
   catch (error) { if (error.status === 403 || error.status === 404) return null; throw error; }
 }
 
 export async function resolveMembership(courseId, accessToken) {
-  const teacher = await membership(`/classroom/v1/courses/${encodeURIComponent(courseId)}/teachers?userId=me`, accessToken);
+  const teacher = await membership(`/v1/courses/${encodeURIComponent(courseId)}/teachers?userId=me`, accessToken);
   if (teacher) return { role: 'admin', studentId: null, classroomUserId: teacher.userId };
-  const student = await membership(`/classroom/v1/courses/${encodeURIComponent(courseId)}/students?userId=me`, accessToken);
+  const student = await membership(`/v1/courses/${encodeURIComponent(courseId)}/students?userId=me`, accessToken);
   if (student) return { role: 'student', studentId: student.userId, classroomUserId: student.userId };
   throw Object.assign(new Error('This account is not a member of the configured newspaper Classroom.'), { status: 403, code: 'classroom_membership_required' });
 }
 
 export const classroom = {
-  courses: token => googleFetch('/classroom/v1/courses?courseStates=ACTIVE', token),
-  courseWork: (courseId, token) => googleFetch(`/classroom/v1/courses/${encodeURIComponent(courseId)}/courseWork?courseWorkStates=PUBLISHED`, token),
-  submissions: (courseId, workId, token) => googleFetch(`/classroom/v1/courses/${encodeURIComponent(courseId)}/courseWork/${encodeURIComponent(workId)}/studentSubmissions`, token)
+  courses: token => classroomFetch('/v1/courses?courseStates=ACTIVE', token),
+  courseWork: (courseId, token) => classroomFetch(`/v1/courses/${encodeURIComponent(courseId)}/courseWork?courseWorkStates=PUBLISHED`, token),
+  submissions: (courseId, workId, token) => classroomFetch(`/v1/courses/${encodeURIComponent(courseId)}/courseWork/${encodeURIComponent(workId)}/studentSubmissions`, token)
 };
 
 function docsText(document) {
