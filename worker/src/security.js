@@ -36,16 +36,77 @@ export function setCookie(name, value, maxAge) {
 
 export const clearCookie = name => `${name}=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=None`;
 
+const allowedTags = new Set(['p','br','strong','b','em','i','u','h2','h3','ul','ol','li','blockquote','a']);
+const voidTags = new Set(['br']);
+const namedEntities = { amp:'&', colon:':', newline:'\n', tab:'\t' };
+
+function decodeEntities(value) {
+  return value.replace(/&(?:#(\d+)|#x([\da-f]+)|([a-z]+));?/gi, (match, decimal, hex, named) => {
+    const point = decimal ? Number(decimal) : hex ? Number.parseInt(hex, 16) : null;
+    if (point !== null) return Number.isFinite(point) ? String.fromCodePoint(point) : '';
+    return namedEntities[named?.toLowerCase()] ?? match;
+  });
+}
+
+function safeHref(value) {
+  const decoded = decodeEntities(value).replace(/[\u0000-\u0020\u007f]+/g, '');
+  try {
+    const url = new URL(decoded);
+    return ['http:', 'https:', 'mailto:'].includes(url.protocol) ? url.href : null;
+  } catch { return null; }
+}
+
+const escapeAttribute = value => value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+
+function parseTag(source) {
+  let i = 0;
+  while (/\s/.test(source[i] || '')) i += 1;
+  const closing = source[i] === '/'; if (closing) i += 1;
+  while (/\s/.test(source[i] || '')) i += 1;
+  const start = i; while (/[a-z0-9]/i.test(source[i] || '')) i += 1;
+  const name = source.slice(start, i).toLowerCase();
+  if (!allowedTags.has(name)) return '';
+  if (closing) return `</${name}>`;
+  let href = null;
+  while (i < source.length) {
+    while (/\s/.test(source[i] || '') || source[i] === '/') i += 1;
+    const attrStart = i; while (/[^\s=/>]/.test(source[i] || '')) i += 1;
+    const attr = source.slice(attrStart, i).toLowerCase();
+    if (!attr) break;
+    while (/\s/.test(source[i] || '')) i += 1;
+    let value = '';
+    if (source[i] === '=') {
+      i += 1; while (/\s/.test(source[i] || '')) i += 1;
+      const quote = source[i] === '"' || source[i] === "'" ? source[i++] : null;
+      const valueStart = i;
+      if (quote) { while (i < source.length && source[i] !== quote) i += 1; value = source.slice(valueStart, i); if (source[i] === quote) i += 1; }
+      else { while (/[^\s>]/.test(source[i] || '')) i += 1; value = source.slice(valueStart, i); }
+    }
+    if (name === 'a' && attr === 'href') href = safeHref(value);
+  }
+  const hrefAttribute = name === 'a' && href ? ` href="${escapeAttribute(href)}"` : '';
+  return `<${name}${hrefAttribute}${voidTags.has(name) ? '>' : '>'}`;
+}
+
 export function sanitizeHtml(input = '') {
-  // Deliberately small allow-list for imported Docs/editor HTML. This is not a DOM parser.
-  // The API only returns this normalized subset; the frontend must still render in a safe context.
-  return String(input)
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/<(script|style|iframe|object|embed|form|input|button|svg|math)[^>]*>[\s\S]*?<\/\1\s*>/gi, '')
-    .replace(/<(script|style|iframe|object|embed|form|input|button|svg|math)[^>]*\/?>/gi, '')
-    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-    .replace(/\s(href|src)\s*=\s*(["'])\s*(javascript:|data:)[\s\S]*?\2/gi, '')
-    .replace(/<(?!\/?(?:p|br|strong|b|em|i|u|h2|h3|ul|ol|li|blockquote|a)(?:\s|>|\/))[^>]+>/gi, '');
+  const html = String(input); let output = '', cursor = 0;
+  while (cursor < html.length) {
+    const open = html.indexOf('<', cursor);
+    if (open < 0) { output += html.slice(cursor); break; }
+    output += html.slice(cursor, open);
+    if (html.startsWith('<!--', open)) { const end = html.indexOf('-->', open + 4); cursor = end < 0 ? html.length : end + 3; continue; }
+    let end = open + 1, quote = null;
+    while (end < html.length) {
+      const char = html[end];
+      if (quote) { if (char === quote) quote = null; }
+      else if (char === '"' || char === "'") quote = char;
+      else if (char === '>') break;
+      end += 1;
+    }
+    if (end >= html.length) { output += '&lt;' + html.slice(open + 1); break; }
+    output += parseTag(html.slice(open + 1, end)); cursor = end + 1;
+  }
+  return output;
 }
 
 export function requireTrustedOrigin(request, env) {
@@ -54,4 +115,3 @@ export function requireTrustedOrigin(request, env) {
     throw Object.assign(new Error('Request origin or CSRF header rejected.'), { status: 403, code: 'csrf_rejected' });
   }
 }
-

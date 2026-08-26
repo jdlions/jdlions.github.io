@@ -40,6 +40,16 @@ async function session(request, env, verifyMembership = true) {
 const requireAdmin = value => { if (value.role !== 'admin') throw Object.assign(new Error('Teacher access required.'), { status: 403, code: 'admin_required' }); };
 const escapeText = value => String(value || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
+export function editForViewer(edit, role) {
+  if (!edit || role !== 'student' || edit.note_visibility === 'student') return edit;
+  const { editor_note: _internalNote, ...visible } = edit;
+  return visible;
+}
+
+export function configuredCourses(data, configuredCourseId) {
+  return { ...data, courses: (data.courses || []).filter(course => course.id === configuredCourseId) };
+}
+
 async function login(request, env) {
   requireConfig(env);
   const state = randomToken(), verifier = randomToken(48);
@@ -80,7 +90,7 @@ async function collectArticles(issue, token, viewer) {
 async function routeApi(request, env, pathname) {
   const viewer = await session(request, env);
   if (pathname === '/api/session' && request.method === 'GET') return ok({ authenticated: true, user: { id: viewer.sub, name: viewer.name, email: viewer.email, role: viewer.role, studentId: viewer.studentId } }, env);
-  if (pathname === '/api/classroom/courses' && request.method === 'GET') { requireAdmin(viewer); return ok(await classroom.courses(viewer.accessToken), env); }
+  if (pathname === '/api/classroom/courses' && request.method === 'GET') { requireAdmin(viewer); return ok(configuredCourses(await classroom.courses(viewer.accessToken),env.NEWSPAPER_CLASSROOM_ID), env); }
   const work = pathname.match(/^\/api\/classroom\/([^/]+)\/coursework$/);
   if (work && request.method === 'GET') { requireAdmin(viewer); if (work[1] !== env.NEWSPAPER_CLASSROOM_ID) throw Object.assign(new Error('Course is outside the configured newspaper Classroom.'), { status: 403, code: 'course_forbidden' }); return ok(await classroom.courseWork(work[1], viewer.accessToken), env); }
   const repo = repository(env);
@@ -88,9 +98,9 @@ async function routeApi(request, env, pathname) {
   if (pathname === '/api/issues' && request.method === 'POST') { requireAdmin(viewer); const input=await request.json(); if(input.classroomCourseId!==env.NEWSPAPER_CLASSROOM_ID || !Array.isArray(input.articleTypes) || input.articleTypes.some(x=>!x.courseWorkId)) throw Object.assign(new Error('Explicit configured courseId and courseWorkId values are required.'),{status:400,code:'invalid_issue_mapping'}); return ok(await repo.createIssue(input),env,201); }
   const issueActivation=pathname.match(/^\/api\/issues\/([^/]+)\/activate$/);
   if(issueActivation&&request.method==='PATCH'){requireAdmin(viewer);return ok(await repo.setActiveIssue(issueActivation[1]),env);}
-  if (pathname === '/api/articles' && request.method === 'GET') { const issueId=new URL(request.url).searchParams.get('issueId'); const issue=issueId&&await repo.getIssue(issueId); if(!issue) throw Object.assign(new Error('A valid issueId is required.'),{status:400,code:'issue_required'}); const articles=await collectArticles(issue,viewer.accessToken,viewer); const edits=await repo.listEdits(issue.id,viewer.role==='student'?viewer.studentId:null); return ok(articles.map(a=>({...a,edit:edits.find(e=>e.submission_id===a.id)||null})),env); }
+  if (pathname === '/api/articles' && request.method === 'GET') { const issueId=new URL(request.url).searchParams.get('issueId'); const issue=issueId&&await repo.getIssue(issueId); if(!issue) throw Object.assign(new Error('A valid issueId is required.'),{status:400,code:'issue_required'}); const articles=await collectArticles(issue,viewer.accessToken,viewer); const edits=await repo.listEdits(issue.id,viewer.role==='student'?viewer.studentId:null); return ok(articles.map(a=>({...a,edit:editForViewer(edits.find(e=>e.submission_id===a.id)||null,viewer.role)})),env); }
   const article = pathname.match(/^\/api\/articles\/([^/]+)$/);
-  if(article && request.method==='GET'){const issueId=new URL(request.url).searchParams.get('issueId'),issue=issueId&&await repo.getIssue(issueId);if(!issue)throw Object.assign(new Error('A valid issueId is required.'),{status:400,code:'issue_required'});const found=(await collectArticles(issue,viewer.accessToken,viewer)).find(x=>x.id===article[1]);if(!found)throw Object.assign(new Error('Article submission not found.'),{status:404,code:'article_not_found'});const doc=found.attachments[0]?.id?await readDoc(found.attachments[0].id,viewer.accessToken):null;return ok({...found,originalContent:doc?`<p>${escapeText(doc.text).replace(/\n/g,'</p><p>')}</p>`:'',edit:await repo.getEdit(found.id)},env);}
+  if(article && request.method==='GET'){const issueId=new URL(request.url).searchParams.get('issueId'),issue=issueId&&await repo.getIssue(issueId);if(!issue)throw Object.assign(new Error('A valid issueId is required.'),{status:400,code:'issue_required'});const found=(await collectArticles(issue,viewer.accessToken,viewer)).find(x=>x.id===article[1]);if(!found)throw Object.assign(new Error('Article submission not found.'),{status:404,code:'article_not_found'});const doc=found.attachments[0]?.id?await readDoc(found.attachments[0].id,viewer.accessToken):null;return ok({...found,originalContent:doc?`<p>${escapeText(doc.text).replace(/\n/g,'</p><p>')}</p>`:'',edit:editForViewer(await repo.getEdit(found.id),viewer.role)},env);}
   const edit = pathname.match(/^\/api\/articles\/([^/]+)\/edit$/);
   if(edit && request.method==='PATCH'){requireAdmin(viewer);const input=await request.json(),issue=await repo.getIssue(input.issueId);if(!issue)throw Object.assign(new Error('Issue not found.'),{status:404,code:'issue_not_found'});const found=(await collectArticles(issue,viewer.accessToken,viewer)).find(x=>x.id===edit[1]);if(!found)throw Object.assign(new Error('Article submission not found.'),{status:404,code:'article_not_found'});return ok(await repo.saveEdit(found.id,{...found,studentGoogleId:found.studentId,editedHtml:sanitizeHtml(input.editedHtml),editorNote:String(input.editorNote||'').slice(0,5000),noteVisibility:input.noteVisibility==='student'?'student':'internal',status:input.status},viewer.sub),env);}
   if(pathname==='/api/photos'&&request.method==='GET'){const issueId=new URL(request.url).searchParams.get('issueId');if(!issueId)throw Object.assign(new Error('issueId is required.'),{status:400,code:'issue_required'});return ok(await repo.listPhotos(issueId,viewer.role==='student'?viewer.studentId:null),env);}
