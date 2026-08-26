@@ -2,7 +2,7 @@ const GOOGLE_API = 'https://www.googleapis.com';
 const CLASSROOM_API = 'https://classroom.googleapis.com';
 
 function googleErrorStatus(status) {
-  if ([401, 403, 404, 429].includes(status)) return status;
+  if ([400, 401, 403, 404, 429].includes(status)) return status;
   if (status >= 500) return 502;
   return 502;
 }
@@ -33,14 +33,17 @@ export async function exchangeCode(code, env, verifier) {
 export async function userInfo(accessToken) { return googleFetch('/oauth2/v3/userinfo', accessToken); }
 
 async function membership(path, accessToken) {
-  try { const result = await classroomFetch(path, accessToken); return result.students?.[0] || result.teachers?.[0] || null; }
-  catch (error) { if (error.status === 403 || error.status === 404) return null; throw error; }
+  try { return await classroomFetch(path, accessToken); }
+  catch (error) { if (error.status === 404) return null; throw error; }
 }
 
 export async function resolveMembership(courseId, accessToken) {
-  const teacher = await membership(`/v1/courses/${encodeURIComponent(courseId)}/teachers?userId=me`, accessToken);
+  const profile = await classroomFetch('/v1/userProfiles/me', accessToken);
+  if (!profile?.id) throw Object.assign(new Error('Google Classroom user profile is missing an ID.'), { status: 502, code: 'classroom_profile_invalid' });
+  const userId = encodeURIComponent(profile.id);
+  const teacher = await membership(`/v1/courses/${encodeURIComponent(courseId)}/teachers/${userId}`, accessToken);
   if (teacher) return { role: 'admin', studentId: null, classroomUserId: teacher.userId };
-  const student = await membership(`/v1/courses/${encodeURIComponent(courseId)}/students?userId=me`, accessToken);
+  const student = await membership(`/v1/courses/${encodeURIComponent(courseId)}/students/${userId}`, accessToken);
   if (student) return { role: 'student', studentId: student.userId, classroomUserId: student.userId };
   throw Object.assign(new Error('This account is not a member of the configured newspaper Classroom.'), { status: 403, code: 'classroom_membership_required' });
 }
