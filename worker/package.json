@@ -1,0 +1,16 @@
+{
+  "name": "lions-pride-editorial-api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "check": "node --check src/index.js && node --test test/*.test.js",
+    "db:local": "wrangler d1 migrations apply editorial-production --local",
+    "db:remote": "wrangler d1 migrations apply editorial-production --remote"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}
+
