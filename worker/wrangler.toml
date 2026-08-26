@@ -5,6 +5,8 @@ compatibility_date = "2026-08-01"
 [vars]
 FRONTEND_ORIGIN = "https://jdlions.github.io"
 OAUTH_REDIRECT_URI = "https://lions-pride-editorial-api.editor-936.workers.dev/auth/callback"
+NEWSPAPER_CLASSROOM_ID = "171421525337"
+DRIVE_UPLOAD_FOLDER_ID = "1eMyFE3z4WVLbZf89RuJz90M3v-J4Jbxd"
 
 [[d1_databases]]
 binding = "DB"
