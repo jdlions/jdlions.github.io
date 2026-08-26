@@ -36,7 +36,7 @@
     /* NAV */
     nav {
       position: fixed; top: 0; left: 0; right: 0; z-index: 200;
-      height: 60px; display: flex; align-items: center; justify-content: space-between;
+      height: 64px; display: grid; grid-template-columns: minmax(220px,1fr) auto minmax(220px,1fr); align-items: center;
       padding: 0 44px;
       background: rgba(7,8,15,0.65);
       backdrop-filter: blur(24px) saturate(160%);
@@ -47,7 +47,7 @@
     .nav-brand img { width: 26px; height: 26px; object-fit: contain; filter: brightness(0) invert(1); }
     .nav-brand-text { font-size: 0.88rem; font-weight: 600; color: var(--white); }
     .nav-brand-text em { color: var(--gold); font-style: normal; }
-    .nav-links { display: flex; gap: 32px; list-style: none; }
+    .nav-links { display: flex; justify-content:center; gap: clamp(20px,2.4vw,34px); list-style: none; }
     .nav-links a { font-size: 0.8rem; font-weight: 400; color: var(--silver); text-decoration: none; transition: color 0.2s; }
     .nav-links a:hover { color: var(--white); }
     .nav-login { color: var(--gold) !important; }
@@ -58,6 +58,7 @@
       text-decoration: none; transition: color 0.2s;
     }
     .nav-ig:hover { color: var(--gold); }
+    .nav-actions { display:flex;align-items:center;justify-content:flex-end;gap:12px;min-width:0; }
 
     /* HERO */
     #hero {
@@ -288,9 +289,10 @@
     ::-webkit-scrollbar-thumb { background: #1e1e1e; border-radius: 3px; }
 
     @media (max-width: 860px) {
-      nav { padding: 0 20px; }
+      nav { padding: 0 20px; grid-template-columns:1fr auto; }
       .nav-links { display: none; }
       .nav-login-compact { display: flex; }
+      .nav-actions #nav-email-btn { display:none; }
       .wrap { padding: 72px 20px; }
       #stats { padding: 0 20px; }
       .about-grid, .contact-grid { grid-template-columns: 1fr; }
@@ -324,9 +326,8 @@
     <li><a href="#archive">Archive</a></li>
     <li><a href="#team">Team</a></li>
     <li><a href="#contact">Contact</a></li>
-    <li><a class="nav-login" href="./login/">Login</a></li>
   </ul>
-  <div style="display:flex;align-items:center;gap:12px;">
+  <div class="nav-actions">
     <a class="nav-ig nav-login nav-login-compact" href="./login/" aria-label="Login to editorial workspace">LOGIN</a>
     <a href="https://instagram.com/joongdong_lp" target="_blank" class="nav-ig">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/></svg>
