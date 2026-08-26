@@ -6,7 +6,7 @@ export class ProductionAuthService {
   static async create() { const result=await api('/api/session'); return new ProductionAuthService(result.authenticated ? result.user : null); }
   getSession() { return this.session; }
   validateSession() { return Promise.resolve(this.session); }
-  login() { location.href=`${editorialConfig.apiBaseUrl}/auth/login?returnTo=${encodeURIComponent(location.pathname)}`; }
+  login(returnTo=location.pathname) { location.href=`${editorialConfig.apiBaseUrl}/auth/login?returnTo=${encodeURIComponent(returnTo || '/')}`; }
   async logout() { await api('/auth/logout',{method:'POST'}); this.session=null; location.href='../login/'; }
 }
 

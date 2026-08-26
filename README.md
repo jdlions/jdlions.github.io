@@ -1,208 +1,105 @@
-# The Lion's Pride website and editorial system
+# The Lion's Pride
 
-The repository hosts the public website of **The Lion's Pride**, Joongdong High School's English newspaper club, on GitHub Pages. Phase 1 adds a static, development-only editorial workspace without replacing the public website or publishing individual student articles.
+중동고 영자신문부 **The Lion's Pride**의 GitHub Pages 공개 사이트와 운영용 편집 시스템입니다.
 
-> **Privacy warning:** this is a public repository. Never commit real student names, drafts, notes, account information, tokens, or photos. All Phase 1 people and editorial records are fictional fixtures.
+> 이 저장소는 공개 저장소입니다. Google/Cloudflare 토큰, 학생 이름·원고·사진, 편집자 내부 메모를 커밋하지 마세요.
 
-## Routes
+## 운영 구조
 
-| Route | Purpose |
+| 영역 | 역할 |
 | --- | --- |
-| `/` | Existing public site and Archive; remains usable without JavaScript because archive markup is retained as a fallback. |
-| `/login/` | Clearly labeled mock role switcher for Public, Student, and Admin. |
-| `/student/` | Guarded development My Page with the signed-in mock student's own articles and photo metadata workflow. |
-| `/admin/` | Guarded development dashboard, Issue configuration, article editor, photo review, and publication preview. |
+| GitHub Pages | 공개 홈페이지, `/login/`, `/student/`, `/admin/` 정적 UI |
+| Cloudflare Worker | Google OAuth, Classroom 역할 판별, 서버 세션, 권한 검사, API |
+| Google Classroom/Docs | 구성원·과제·제출물과 읽기 전용 기사 원문 |
+| Cloudflare D1 | Issue 설정, 별도 편집본, 메모/공개 범위, 검토 상태, 사진 메타데이터 |
+| Private Google Drive | 학생 사진 파일과 최종 신문 PDF |
+| `data/issues.json` | 공개 Archive의 검토·커밋된 발행 목록 |
 
-Directory routes use physical `index.html` files so they work on GitHub Pages without a rewrite fallback.
+운영 API는 `https://lions-pride-editorial-api.editor-936.workers.dev`입니다. 프런트엔드는 항상 이 API를 사용하며 브라우저 `localStorage`/`sessionStorage`의 mock 권한이나 데이터를 사용하지 않습니다. 과거 mock 구현 파일은 개발 참고용으로만 남아 있고 production factory에서 import되지 않습니다.
 
-## Architecture
+## 로그인과 권한
 
-- **UI:** route HTML files plus `assets/css/editorial.css` and route controllers in `assets/js/student` and `assets/js/admin`.
-- **Authentication:** `assets/js/auth` exposes an auth-service boundary and a Phase 1 `MockAuthService`. The mock session is in `sessionStorage` and is not security.
-- **Service layer:** `assets/js/services/service-contracts.js` documents the replaceable contract. `MockEditorialService` implements it for local development.
-- **Data/storage:** fictional seeds live only in `assets/js/data/mock-data.js`; mutable development state is copied into browser `localStorage`. The service, rather than UI components, owns reads and writes.
-- **Public archive:** canonical committed records are in `data/issues.json`. `assets/js/public/archive.js` progressively renders them into the current Archive styles; the original embedded rows remain as a no-JavaScript/network-failure fallback.
+1. `/login/`에서 학교 Google 계정으로 로그인합니다.
+2. Worker가 Authorization Code + PKCE를 완료하고 설정된 신문부 Classroom의 현재 membership을 확인합니다.
+3. Classroom teacher는 `admin`, student는 `student` 세션을 받습니다. 비구성원은 거부됩니다.
+4. `/admin/`과 `/student/`는 `GET /api/session` 결과로 분기하며, 세션이 없으면 `/login/`으로 이동합니다.
 
-There is intentionally no framework or build step. This limits disruption to the deployed public site and matches its existing static architecture.
+세션 쿠키는 `Secure`, `HttpOnly`, `SameSite=None`입니다. 변경 요청은 정확한 `FRONTEND_ORIGIN`과 `X-Editorial-CSRF` 헤더가 모두 필요합니다. 학생 기사·사진 조회는 서버 세션에서 얻은 Classroom 학생 ID로 다시 제한하며, 내부 메모는 학생 응답에서 제거합니다.
 
-## Phase 1 behavior
+## 관리자 운영 절차
 
-### Mock authentication
+### 새 Issue와 Classroom 과제 연결
 
-The login route switches among fictional Public, Student, and Admin sessions. Route guards improve development UX only. In production, the browser must receive a secure server session after the backend validates Google Identity and Classroom membership. A browser-supplied role must never be trusted.
+1. Google Classroom에서 기사 유형별 과제를 먼저 만듭니다.
+2. `/admin/` → **호 설정**에서 새 Issue 이름, 연도, 시즌을 입력합니다.
+3. 설정된 신문부 Classroom을 선택합니다.
+4. 실제 courseWork 목록에서 각 기사 유형의 과제를 직접 선택합니다.
+5. 저장 후 Issue를 **Set active**로 활성화합니다.
 
-### Student area
+연결은 과제명이 아니라 안정적인 `classroomCourseId`와 각 `courseWorkId`로 저장됩니다. 과제명을 바꾸어도 연결 ID는 유지됩니다. 새 기사 유형을 추가하려면 `articleTypes: [{ id, label, courseWorkId }]` 배열을 확장하세요.
 
-The fictional student can view only records filtered by the authenticated mock student ID, compare an immutable original with a separately stored edited version, inspect review status, and submit photo metadata. Selected image binaries are not persisted; the mock stores only filenames and metadata.
+### 기사·사진 편집
 
-### Admin area
+- Google Docs 원문은 읽기 전용으로 가져오며 편집본은 D1에 별도로 저장합니다.
+- 메모는 기본적으로 `internal`입니다. 학생에게 보여야 할 때만 공개 범위를 명시적으로 변경합니다.
+- 학생 사진은 본인의 연결된 제출물에만 업로드할 수 있고, 파일은 비공개 Drive 폴더에 저장됩니다.
+- 지원 사진 형식은 JPEG, PNG, WebP이며 파일당 최대 15MB입니다.
 
-The admin dashboard derives counts from service data. Editors can:
+### 공개 Archive 발행
 
-- create and activate Issues;
-- select any mock Classroom and manually map any two assignments using stable `courseId` and `courseWorkId` values;
-- filter submissions by Issue, article type, student, and status;
-- navigate student-first submissions and edit a separate version without changing `originalContent`;
-- use basic rich-text commands, notes/visibility metadata, statuses, Previous, Save, and Save & Next;
-- filter and review photo metadata without destructive deletion; and
-- validate/preview one final `drive.google.com` URL in the existing Archive visual language.
+관리자 발행 화면은 최종 Drive URL의 **미리보기만** 제공합니다. Worker/D1 저장만으로 GitHub Pages의 `data/issues.json`은 갱신되지 않으므로 브라우저에는 실제 발행 버튼이 없습니다.
 
-Issue records use an extensible array:
+정식 발행 절차:
 
-```js
-{
-  id, name, year, season, status, classroomCourseId, createdAt,
-  articleTypes: [{ id, label, courseWorkId }]
-}
-```
+1. 최종 PDF의 공유 범위를 학교 정책에 맞게 확인합니다.
+2. 새 브랜치에서 `data/issues.json`에 다음 Issue 번호·표시 날짜·Drive URL을 추가합니다.
+3. `python scripts/validate.py`를 실행합니다.
+4. PR에서 링크, 번호 순서, 개인정보 부재를 검토한 뒤 merge합니다.
 
-Assignments are never selected by title matching. Adding a future article type is a data/configuration change, not a schema rewrite.
+GitHub write token을 프런트엔드나 Worker에 넣지 마세요. 향후 자동화가 필요하면 GitHub Actions의 보호된 환경, 최소 권한 토큰, 승인 단계가 있는 별도 발행 workflow로 구현합니다.
 
-## Failure states
+## Worker 설정과 배포
 
-Phase 1 provides visible states for missing login, wrong role redirects, no active Issue, no submissions, no matching filters, unavailable assignments/submissions, invalid publication URLs, and local upload/service errors. Production service errors should map backend error codes for unavailable Classroom/Google API, removed assignment, authorization denial, network failure, and failed Drive upload into the same visible notice/toast patterns.
+Cloudflare 일반 변수:
 
-## Local development and checks
-
-Serve the repository over HTTP because ES modules and JSON fetches are restricted under `file://`:
-
-```bash
-python3 -m http.server 4173
-```
-
-Then open `http://localhost:4173/`. Use **LOGIN** to enter either mock workspace. “Reset mock data” in Admin clears edits in the current browser and restores fixtures.
-
-Run static checks:
-
-```bash
-python3 scripts/validate.py
-```
-
-## Production backend (Cloudflare Worker + Google)
-
-The repository now contains a production backend in `worker/`. The deployed API base URL is:
-
-```text
-https://lions-pride-editorial-api.editor-936.workers.dev
-```
-
-The static UI remains in mock mode by default so the public site, Archive, and existing demonstration workspaces are unchanged. To test production mode, open any editorial route once with `?editorialMode=production`; use `?editorialMode=mock` to switch back. Production mode uses credentialed requests to the Worker and never accepts a browser-provided role, email, or student ID as authorization evidence.
-
-### Worker environment
-
-Non-secret variables (in `worker/wrangler.toml` or Cloudflare **Workers & Pages → lions-pride-editorial-api → Settings → Variables and Secrets**):
-
-| Name | Value |
+| 이름 | 값 |
 | --- | --- |
 | `FRONTEND_ORIGIN` | `https://jdlions.github.io` |
 | `OAUTH_REDIRECT_URI` | `https://lions-pride-editorial-api.editor-936.workers.dev/auth/callback` |
-| `NEWSPAPER_CLASSROOM_ID` | The stable Google Classroom course ID selected for the newspaper club |
-| `DRIVE_UPLOAD_FOLDER_ID` | The stable ID of a private, school-governed Drive upload folder |
+| `NEWSPAPER_CLASSROOM_ID` | 신문부 Classroom의 stable course ID |
+| `DRIVE_UPLOAD_FOLDER_ID` | 학교가 관리하는 비공개 Drive 폴더 ID |
 
-Secrets (enter values only in Cloudflare; do not put them in source, `.env`, screenshots, issues, or PR comments):
-
-```bash
-cd worker
-npx wrangler secret put GOOGLE_CLIENT_ID
-npx wrangler secret put GOOGLE_CLIENT_SECRET
-npx wrangler secret put SESSION_SECRET
-```
-
-Generate `SESSION_SECRET` as a cryptographically random value of at least 32 bytes. The OAuth client secret is neither needed nor accepted by the frontend. For local development, copy `worker/.env.example` to the gitignored `worker/.dev.vars` and fill it only on the developer machine.
-
-### D1 creation and deployment
+Cloudflare secrets: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, 32바이트 이상의 무작위 `SESSION_SECRET`. 값은 저장소, Issue, PR, 스크린샷에 남기지 않습니다. D1 binding 이름은 `DB`를 유지합니다.
 
 ```bash
 cd worker
 npm install
-npx wrangler login
-npx wrangler d1 create editorial-production
-```
-
-Copy only the generated D1 `database_id` into the commented `[[d1_databases]]` block in `worker/wrangler.toml`, uncomment that block, then run:
-
-```bash
+npm run check
 npm run db:remote
 npm run deploy
 ```
 
-The binding name must remain `DB`. D1 stores Issue configuration, separate edited HTML, notes/status, and photo metadata. Student originals stay in Classroom/Docs and uploaded photo binaries stay in the private Drive folder. If `DB` is absent, private persistence endpoints fail closed with `database_unconfigured`; the browser mock remains available and does not silently become production storage.
+프런트엔드만 변경한 경우 Worker 재배포는 필요 없습니다. `worker/src`, migration, `wrangler.toml` 또는 Worker 환경 설정을 바꾼 경우 테스트 후 재배포합니다.
 
-### Google Cloud configuration
-
-Use the school-owned Google Cloud project **The Lions Pride Editorial**. Google Classroom API, Drive API, and Docs API must remain enabled. In Google Auth Platform:
-
-1. Keep Audience **Internal** for the school Workspace organization.
-2. Keep Authorized JavaScript origin `https://jdlions.github.io`.
-3. Set the exact redirect URI `https://lions-pride-editorial-api.editor-936.workers.dev/auth/callback` (including path and HTTPS).
-4. Review/approve the least-privilege scopes listed in `worker/src/index.js`. Workspace admin policy may require marking the OAuth app trusted because Classroom roster/submission scopes can be restricted.
-5. Ensure the signing-in teacher/student can access the configured Classroom and its attachments. Create a private Drive folder governed by the school and supply its folder ID as `DRIVE_UPLOAD_FOLDER_ID`; do not make it public.
-
-The server uses Authorization Code + PKCE, validates encrypted `state`, and exchanges the code with the client secret only inside the Worker. After sign-in, it checks the configured Classroom: teachers become `admin`, students become `student`, and non-members are denied. Session and OAuth state cookies are `Secure`, `HttpOnly`, and `SameSite=None`; mutating requests additionally require the exact frontend Origin plus a custom CSRF header. CORS allows only `FRONTEND_ORIGIN` and credentials.
-
-### API contract
-
-- `GET /api/session`
-- `GET|POST /api/issues`; `PATCH /api/issues/:id/activate`
-- `GET /api/classroom/courses`
-- `GET /api/classroom/:courseId/coursework`
-- `GET /api/articles?issueId=…`
-- `GET /api/articles/:id?issueId=…`
-- `PATCH /api/articles/:id/edit`
-- `GET /api/photos?issueId=…`
-- `POST /api/photos/upload`; `PATCH /api/photos/:id/status`
-
-Issue mappings always contain explicit `classroomCourseId` and `articleTypes[].courseWorkId`. Assignment names are display data, never selection logic. Article and photo access is re-scoped from the server-authenticated Classroom identity; student identifiers in request bodies are not trusted.
-
-### Untrusted content and XSS
-
-Google Docs text, attachment titles, filenames, captions, notes, URLs, and edited HTML are untrusted. Docs are converted to escaped text paragraphs. Edited HTML is normalized server-side through a deliberately small element allow-list that removes active/embedded content, event handlers, and dangerous URL schemes. The existing UI also escapes text metadata. Before broad production use, replace the lightweight Worker sanitizer with a maintained, parser-based HTML sanitizer compatible with Workers, add a strict Content Security Policy to editorial pages, and keep sanitized output separate from immutable originals. Never render raw Google/Drive metadata with `innerHTML`.
-
-## Google Cloud Setup — Required Before Production
-
-No credentials or real Google calls are included. Before production:
-
-1. Create/review a Google Cloud project under school governance and configure an OAuth consent screen.
-2. Configure an approved web OAuth client with exact production redirect origins. Keep the client secret in backend secret storage, never this repository.
-3. Enable and review:
-   - **Google Identity / OAuth:** authenticate the Google account; backend validates ID/access tokens and creates a secure session.
-   - **Google Classroom API:** verify membership/teacher role, list courses and all course work, roster students, and retrieve student submissions and attachments.
-   - **Google Drive API:** access attached Docs as permitted and upload student photos into a restricted newspaper folder; persist Drive file IDs/URLs, not binaries in GitHub.
-   - **Google Docs API:** read document structure/content from attached Google Docs without modifying the student's original.
-4. Implement a private backend (a Cloudflare Worker is one option) for token verification, server-side Classroom authorization on every request, secure cookies/session rotation, data access, uploads, edit persistence, and authenticated publication.
-5. Choose private storage (for example, D1, Firestore, or Supabase after governance/cost review) with access control, retention, audit, backup, and deletion policies.
-6. Replace the mock service factories without coupling UI controllers to Google SDKs.
-
-### Proposed scopes for review—not finalized
-
-Apply least privilege and validate exact requirements in a test tenant before consent review. Likely starting points include OpenID Connect identity scopes (`openid`, `email`, `profile`), read-only Classroom courses/coursework/rosters/submissions scopes, read-only Drive/Docs access where attachment retrieval requires it, and a narrowly constrained Drive file scope for app-created uploads. Avoid broad full-Drive access. Teacher and student flows may require different incremental scopes. Do not deploy scopes until the school's administrator and privacy owner approve them.
-
-## Production security requirements
-
-- Authorize every private API operation server-side from a validated session and current Classroom membership; never from URL parameters, local storage, or a role sent by JavaScript.
-- Scope student reads by the server-derived Google subject/student identity. Admin endpoints must independently verify teacher membership.
-- Use secure, HTTP-only, SameSite cookies; short sessions; CSRF defenses; strict origin/CORS rules; rate limits; and safe upload size/type/content validation.
-- Encrypt private data in transit and at rest, minimize collection, define retention/deletion, and avoid logging drafts, tokens, or personal information.
-- Keep the original Classroom/Docs attachment immutable. Store edited content separately with actor/time metadata and, later, revision history.
-- Restrict the Drive upload folder and final PDF permissions deliberately. Do not make working photos or drafts link-public.
-- Treat filenames, captions, rich text, URLs, and imported Docs as untrusted input. Sanitize on the backend and again for its rendering context.
-
-## Verification and current limitations
-
-Run repository and Worker checks:
+## 검증
 
 ```bash
-python3 scripts/validate.py
+python scripts/validate.py
 cd worker
 npm install
 npm run check
-npm run dev
 ```
 
-Local OAuth requires a separate localhost OAuth client/redirect or a deployed Worker; do not add localhost redirect values to the production client casually. Automated checks cover syntax, repository structure, archive regression markers, security helpers, ignored secret files, and the absence of obvious credentials. Live OAuth, Classroom membership, Docs attachment reads, Drive upload, D1 persistence, and cross-site cookies require the real school Workspace accounts and Cloudflare bindings and therefore must be verified after deployment.
+배포 후에는 미로그인 `GET /api/session`, teacher→admin, student→student, 비구성원 거부, 실제 courseWork 연결, Docs 원문 조회, D1 편집본 저장, 내부 메모 비노출, 본인 제출물 제한, Drive 사진 업로드, 로그아웃/만료 세션을 순서대로 확인합니다.
 
-Recommended live test order: deploy/bind D1 → set variables/secrets → confirm `/` health response → test a non-member denial → teacher login/admin course list → explicit Issue mappings → student login/own submissions only → read-only Docs original → admin separate edit/status → JPEG/PNG/WebP upload into private Drive → student/admin photo visibility → logout and expired-session behavior → switch back to mock and recheck public Archive/student/admin routes.
+## 배포와 롤백
 
-## Phase 1 limitations
+- GitHub Pages: 변경 브랜치에서 PR을 만들고 검증 후 `main`에 merge합니다. 직접 push하지 않습니다.
+- Worker: 위 명령으로 별도 배포합니다. 기존 운영 변수와 secrets는 그대로 보존합니다.
+- 프런트엔드 롤백: 문제 PR의 merge commit을 새 revert PR로 되돌립니다.
+- Worker 롤백: Cloudflare Deployments에서 직전 정상 배포를 선택해 rollback한 뒤 원인을 수정한 PR을 만듭니다.
+- D1 migration은 적용 전에 백업하고, destructive rollback 대신 forward-fix migration을 사용합니다.
 
-Mock mode remains browser-local. Production mode provides server authorization, Google reads/uploads, and D1-backed editorial state, but final public Archive publication remains intentionally separate: the mock Publish button cannot modify GitHub. A protected review/commit workflow is still required before publishing. The current production client is deliberately minimal and should receive usability/error-state hardening after the first credentialed integration test.
+## 보안 원칙
+
+원문과 Google/Drive metadata는 신뢰하지 않습니다. Docs 텍스트는 escape하고 편집 HTML은 Worker allow-list sanitizer를 거칩니다. CORS/CSRF와 현재 Classroom membership 확인을 유지하고, 비공개 자료를 공개 Archive나 로그에 넣지 않습니다. 실제 운영 전반에는 rate limiting, 감사 로그, 보존·삭제 정책과 D1 백업을 별도로 운영하세요.
