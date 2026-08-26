@@ -23,6 +23,28 @@ export async function exchangeCode(code, env, verifier) {
 
 export async function userInfo(accessToken) { return googleFetch('/oauth2/v3/userinfo', accessToken); }
 
+// TEMPORARY CLASSROOM DEBUG: remove this helper and its callback call after the
+// configured course ID has been verified. Never add account or token fields here.
+export async function logClassroomCourseDebug(configuredCourseId, accessToken, logger = console) {
+  try {
+    const result = await googleFetch('/classroom/v1/courses?courseStates=ACTIVE&fields=courses(id,name)', accessToken);
+    const courses = (result.courses || []).map(({ id, name }) => ({ id, name }));
+    logger.info(JSON.stringify({
+      event: 'classroom_course_debug',
+      configuredCourseId,
+      configuredCourseVisible: courses.some(course => course.id === configuredCourseId),
+      courses
+    }));
+  } catch (error) {
+    logger.warn(JSON.stringify({
+      event: 'classroom_course_debug_failed',
+      configuredCourseId,
+      status: error.status || 500,
+      code: error.code || 'internal_error'
+    }));
+  }
+}
+
 async function membership(path, accessToken) {
   try { const result = await googleFetch(path, accessToken); return result.students?.[0] || result.teachers?.[0] || null; }
   catch (error) { if (error.status === 403 || error.status === 404) return null; throw error; }

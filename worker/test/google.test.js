@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { classroom, resolveMembership } from '../src/google.js';
+import { classroom, logClassroomCourseDebug, resolveMembership } from '../src/google.js';
 
 const originalFetch = globalThis.fetch;
 
@@ -57,6 +57,40 @@ test('missing teacher and student memberships return membership_required', async
     resolveMembership('course', 'secret-token'),
     error => error.status === 403 && error.code === 'classroom_membership_required'
   );
+});
+
+test('Classroom debug log contains only configured ID and course ID/name data', async () => {
+  globalThis.fetch = async (url, init) => {
+    assert.match(url, /fields=courses\(id,name\)/);
+    assert.equal(init.headers.Authorization, 'Bearer secret-token');
+    return jsonResponse({
+      courses: [
+        { id: 'course-1', name: 'Newspaper', ownerId: 'private-owner' },
+        { id: 'course-2', name: 'English', email: 'private@example.com' }
+      ],
+      nextPageToken: 'private-page-token'
+    });
+  };
+  const entries = [];
+  const logger = {
+    info: entry => entries.push(entry),
+    warn: entry => entries.push(entry)
+  };
+
+  await logClassroomCourseDebug('course-1', 'secret-token', logger);
+
+  assert.equal(entries.length, 1);
+  assert.deepEqual(JSON.parse(entries[0]), {
+    event: 'classroom_course_debug',
+    configuredCourseId: 'course-1',
+    configuredCourseVisible: true,
+    courses: [
+      { id: 'course-1', name: 'Newspaper' },
+      { id: 'course-2', name: 'English' }
+    ]
+  });
+  assert.equal(entries[0].includes('secret-token'), false);
+  assert.equal(entries[0].includes('private'), false);
 });
 
 test('Google API status mapping preserves actionable client errors and normalizes upstream failures', async t => {
