@@ -78,6 +78,86 @@ Run static checks:
 python3 scripts/validate.py
 ```
 
+## Production backend (Cloudflare Worker + Google)
+
+The repository now contains a production backend in `worker/`. The deployed API base URL is:
+
+```text
+https://lions-pride-editorial-api.editor-936.workers.dev
+```
+
+The static UI remains in mock mode by default so the public site, Archive, and existing demonstration workspaces are unchanged. To test production mode, open any editorial route once with `?editorialMode=production`; use `?editorialMode=mock` to switch back. Production mode uses credentialed requests to the Worker and never accepts a browser-provided role, email, or student ID as authorization evidence.
+
+### Worker environment
+
+Non-secret variables (in `worker/wrangler.toml` or Cloudflare **Workers & Pages → lions-pride-editorial-api → Settings → Variables and Secrets**):
+
+| Name | Value |
+| --- | --- |
+| `FRONTEND_ORIGIN` | `https://jdlions.github.io` |
+| `OAUTH_REDIRECT_URI` | `https://lions-pride-editorial-api.editor-936.workers.dev/auth/callback` |
+| `NEWSPAPER_CLASSROOM_ID` | The stable Google Classroom course ID selected for the newspaper club |
+| `DRIVE_UPLOAD_FOLDER_ID` | The stable ID of a private, school-governed Drive upload folder |
+
+Secrets (enter values only in Cloudflare; do not put them in source, `.env`, screenshots, issues, or PR comments):
+
+```bash
+cd worker
+npx wrangler secret put GOOGLE_CLIENT_ID
+npx wrangler secret put GOOGLE_CLIENT_SECRET
+npx wrangler secret put SESSION_SECRET
+```
+
+Generate `SESSION_SECRET` as a cryptographically random value of at least 32 bytes. The OAuth client secret is neither needed nor accepted by the frontend. For local development, copy `worker/.env.example` to the gitignored `worker/.dev.vars` and fill it only on the developer machine.
+
+### D1 creation and deployment
+
+```bash
+cd worker
+npm install
+npx wrangler login
+npx wrangler d1 create editorial-production
+```
+
+Copy only the generated D1 `database_id` into the commented `[[d1_databases]]` block in `worker/wrangler.toml`, uncomment that block, then run:
+
+```bash
+npm run db:remote
+npm run deploy
+```
+
+The binding name must remain `DB`. D1 stores Issue configuration, separate edited HTML, notes/status, and photo metadata. Student originals stay in Classroom/Docs and uploaded photo binaries stay in the private Drive folder. If `DB` is absent, private persistence endpoints fail closed with `database_unconfigured`; the browser mock remains available and does not silently become production storage.
+
+### Google Cloud configuration
+
+Use the school-owned Google Cloud project **The Lions Pride Editorial**. Google Classroom API, Drive API, and Docs API must remain enabled. In Google Auth Platform:
+
+1. Keep Audience **Internal** for the school Workspace organization.
+2. Keep Authorized JavaScript origin `https://jdlions.github.io`.
+3. Set the exact redirect URI `https://lions-pride-editorial-api.editor-936.workers.dev/auth/callback` (including path and HTTPS).
+4. Review/approve the least-privilege scopes listed in `worker/src/index.js`. Workspace admin policy may require marking the OAuth app trusted because Classroom roster/submission scopes can be restricted.
+5. Ensure the signing-in teacher/student can access the configured Classroom and its attachments. Create a private Drive folder governed by the school and supply its folder ID as `DRIVE_UPLOAD_FOLDER_ID`; do not make it public.
+
+The server uses Authorization Code + PKCE, validates encrypted `state`, and exchanges the code with the client secret only inside the Worker. After sign-in, it checks the configured Classroom: teachers become `admin`, students become `student`, and non-members are denied. Session and OAuth state cookies are `Secure`, `HttpOnly`, and `SameSite=None`; mutating requests additionally require the exact frontend Origin plus a custom CSRF header. CORS allows only `FRONTEND_ORIGIN` and credentials.
+
+### API contract
+
+- `GET /api/session`
+- `GET|POST /api/issues`; `PATCH /api/issues/:id/activate`
+- `GET /api/classroom/courses`
+- `GET /api/classroom/:courseId/coursework`
+- `GET /api/articles?issueId=…`
+- `GET /api/articles/:id?issueId=…`
+- `PATCH /api/articles/:id/edit`
+- `GET /api/photos?issueId=…`
+- `POST /api/photos/upload`; `PATCH /api/photos/:id/status`
+
+Issue mappings always contain explicit `classroomCourseId` and `articleTypes[].courseWorkId`. Assignment names are display data, never selection logic. Article and photo access is re-scoped from the server-authenticated Classroom identity; student identifiers in request bodies are not trusted.
+
+### Untrusted content and XSS
+
+Google Docs text, attachment titles, filenames, captions, notes, URLs, and edited HTML are untrusted. Docs are converted to escaped text paragraphs. Edited HTML is normalized server-side through a deliberately small element allow-list that removes active/embedded content, event handlers, and dangerous URL schemes. The existing UI also escapes text metadata. Before broad production use, replace the lightweight Worker sanitizer with a maintained, parser-based HTML sanitizer compatible with Workers, add a strict Content Security Policy to editorial pages, and keep sanitized output separate from immutable originals. Never render raw Google/Drive metadata with `innerHTML`.
+
 ## Google Cloud Setup — Required Before Production
 
 No credentials or real Google calls are included. Before production:
@@ -107,6 +187,22 @@ Apply least privilege and validate exact requirements in a test tenant before co
 - Restrict the Drive upload folder and final PDF permissions deliberately. Do not make working photos or drafts link-public.
 - Treat filenames, captions, rich text, URLs, and imported Docs as untrusted input. Sanitize on the backend and again for its rendering context.
 
+## Verification and current limitations
+
+Run repository and Worker checks:
+
+```bash
+python3 scripts/validate.py
+cd worker
+npm install
+npm run check
+npm run dev
+```
+
+Local OAuth requires a separate localhost OAuth client/redirect or a deployed Worker; do not add localhost redirect values to the production client casually. Automated checks cover syntax, repository structure, archive regression markers, security helpers, ignored secret files, and the absence of obvious credentials. Live OAuth, Classroom membership, Docs attachment reads, Drive upload, D1 persistence, and cross-site cookies require the real school Workspace accounts and Cloudflare bindings and therefore must be verified after deployment.
+
+Recommended live test order: deploy/bind D1 → set variables/secrets → confirm `/` health response → test a non-member denial → teacher login/admin course list → explicit Issue mappings → student login/own submissions only → read-only Docs original → admin separate edit/status → JPEG/PNG/WebP upload into private Drive → student/admin photo visibility → logout and expired-session behavior → switch back to mock and recheck public Archive/student/admin routes.
+
 ## Phase 1 limitations
 
-Authentication and all data are browser-local mocks; there is no cross-device persistence, true access control, Google integration, binary upload, collaboration, or backend publication. Rich-text commands use browser editing primitives intended for a lightweight prototype. The public JSON Archive is committed data; the mock Publish button cannot change repository files. Production publication needs a protected backend or an approved review/commit workflow.
+Mock mode remains browser-local. Production mode provides server authorization, Google reads/uploads, and D1-backed editorial state, but final public Archive publication remains intentionally separate: the mock Publish button cannot modify GitHub. A protected review/commit workflow is still required before publishing. The current production client is deliberately minimal and should receive usability/error-state hardening after the first credentialed integration test.
