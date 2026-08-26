@@ -1,12 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { sanitizeHtml, seal, unseal } from '../src/security.js';
+import { sanitizeHtml, seal, setCookie, unseal } from '../src/security.js';
 
 test('sealed session round trips and rejects another key', async () => {
   const value={sub:'fictional-subject',role:'student',exp:123};
   const token=await seal(value,'a sufficiently long test-only secret');
   assert.deepEqual(await unseal(token,'a sufficiently long test-only secret'),value);
   assert.equal(await unseal(token,'different test-only secret'),null);
+});
+
+test('__Host session cookies are first-party Lax cookies', () => {
+  const value = setCookie('__Host-lp_session', 'sealed', 600);
+  assert.match(value, /Path=\/;/);
+  assert.match(value, /Secure/);
+  assert.match(value, /HttpOnly/);
+  assert.match(value, /SameSite=Lax/);
+  assert.doesNotMatch(value, /Domain=|SameSite=None/);
 });
 
 test('HTML sanitizer removes active content and handlers', () => {

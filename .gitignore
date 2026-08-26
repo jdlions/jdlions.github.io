@@ -4,5 +4,6 @@ worker/.env
 worker/.env.*
 !worker/.env.example
 worker/.wrangler/
+worker/.static/
 *.local
 

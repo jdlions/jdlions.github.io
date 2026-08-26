@@ -25,3 +25,4 @@ body:not(.login-page){background:radial-gradient(circle at 82% 5%,rgba(201,168,7
 .login-kicker{color:var(--light);max-width:52ch}.ko-sub{display:block;color:var(--muted);font-size:.76rem;margin-top:3px}.brand-lockup{display:flex;align-items:center;gap:12px}.brand-lockup::before{content:"LP";display:grid;place-items:center;width:30px;height:30px;border:1px solid rgba(201,168,76,.45);border-radius:9px;color:var(--gold);font:500 .62rem DM Mono}
 @media(max-width:760px){.app-sidebar{top:72px}.app-main{margin:0;padding-top:96px}.login-card{padding:30px 22px}.brand-lockup::before{display:none}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important}}
+.login-options--single{grid-template-columns:1fr}

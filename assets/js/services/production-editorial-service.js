@@ -30,7 +30,7 @@ export class ProductionEditorialService {
     const issues=await api('/api/issues'), active=issues.find(x=>x.status==='active');
     let articles=[],photos=[],courses=[],courseWork=[];
     if(active){articles=await api(`/api/articles?issueId=${encodeURIComponent(active.id)}`);articles=await Promise.all(articles.map(a=>api(`/api/articles/${encodeURIComponent(a.id)}?issueId=${encodeURIComponent(active.id)}`)));photos=(await api(`/api/photos?issueId=${encodeURIComponent(active.id)}`)).map(normalizePhoto);}
-    if(session?.role==='admin'&&active?.classroomCourseId){const result=await api('/api/classroom/courses');courses=selectConfiguredCourses(result.courses,active.classroomCourseId);for(const course of courses){const result=await api(`/api/classroom/${encodeURIComponent(course.id)}/coursework`);courseWork.push(...(result.courseWork||[]).map(x=>({...x,courseId:course.id})));}}
+    if(session?.role==='admin'){const result=await api('/api/classroom/courses');courses=result.courses||[];for(const course of courses){const result=await api(`/api/classroom/${encodeURIComponent(course.id)}/coursework`);courseWork.push(...(result.courseWork||[]).map(x=>({...x,courseId:course.id})));}}
     const students=[...new Set(articles.map(x=>x.studentId))].map(id=>({id,name:`Classroom user ${id.slice(-6)}`}));
     return new ProductionEditorialService({issues,articles:articles.map(x=>({...x,title:x.attachments?.[0]?.title||'Google Docs submission',originalContent:x.originalContent,editedContent:x.edit?.edited_html||'',editorNote:x.edit?.editor_note||'',noteVisibility:x.edit?.note_visibility||'internal',status:x.edit?.status||'unreviewed'})),photos,courses,courseWork,students,publications:[]},session);
   }

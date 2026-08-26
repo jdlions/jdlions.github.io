@@ -15,13 +15,13 @@ const scopes = [
   'https://www.googleapis.com/auth/documents.readonly'
 ];
 
-function cors(env) { return { 'Access-Control-Allow-Origin': env.FRONTEND_ORIGIN, 'Access-Control-Allow-Credentials': 'true', 'Access-Control-Allow-Headers': 'Content-Type, X-Editorial-CSRF', 'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS', Vary: 'Origin' }; }
+function cors() { return {}; }
 function response(data, status, env, headers = {}) { return new Response(data == null ? null : JSON.stringify(data), { status, headers: { ...cors(env), 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers } }); }
 const ok = (data, env, status = 200, headers) => response(data, status, env, headers);
 const fail = (error, env) => response({ error: { code: error.code || 'internal_error', message: error.status ? error.message : 'Unexpected server error.' } }, error.status || 500, env);
 
 function requireConfig(env) {
-  for (const name of ['GOOGLE_CLIENT_ID','GOOGLE_CLIENT_SECRET','SESSION_SECRET','FRONTEND_ORIGIN','OAUTH_REDIRECT_URI','NEWSPAPER_CLASSROOM_ID']) {
+  for (const name of ['GOOGLE_CLIENT_ID','GOOGLE_CLIENT_SECRET','SESSION_SECRET','EDITORIAL_ORIGIN','OAUTH_REDIRECT_URI','NEWSPAPER_CLASSROOM_ID']) {
     if (!env[name]) throw Object.assign(new Error(`${name} is not configured.`), { status: 503, code: 'configuration_error' });
   }
 }
@@ -52,10 +52,10 @@ export function configuredCourses(data, configuredCourseId) {
 
 async function login(request, env) {
   requireConfig(env);
+  if (new URL(request.url).origin !== env.EDITORIAL_ORIGIN) throw Object.assign(new Error('Editorial origin is misconfigured.'), { status: 503, code: 'configuration_error' });
   const state = randomToken(), verifier = randomToken(48);
   const challenge = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
-  const returnTo = new URL(request.url).searchParams.get('returnTo') || '/';
-  const stateValue = await seal({ state, verifier, returnTo: returnTo.startsWith('/') ? returnTo : '/' }, env.SESSION_SECRET);
+  const stateValue = await seal({ state, verifier }, env.SESSION_SECRET);
   const query = new URLSearchParams({ client_id: env.GOOGLE_CLIENT_ID, redirect_uri: env.OAUTH_REDIRECT_URI, response_type: 'code', scope: scopes.join(' '), state, code_challenge: challenge, code_challenge_method: 'S256', access_type: 'online', include_granted_scopes: 'true' });
   return new Response(null, { status: 302, headers: { Location: `https://accounts.google.com/o/oauth2/v2/auth?${query}`, 'Set-Cookie': setCookie(STATE_COOKIE, stateValue, 600), 'Cache-Control': 'no-store' } });
 }
@@ -63,6 +63,7 @@ async function login(request, env) {
 async function callback(request, env) {
   requireConfig(env);
   const url = new URL(request.url), saved = await unseal(cookie(request, STATE_COOKIE) || '', env.SESSION_SECRET);
+  if (url.origin !== env.EDITORIAL_ORIGIN) throw Object.assign(new Error('Editorial origin is misconfigured.'), { status: 503, code: 'configuration_error' });
   if (!saved || !url.searchParams.get('state') || saved.state !== url.searchParams.get('state')) throw Object.assign(new Error('OAuth state validation failed.'), { status: 400, code: 'oauth_state_invalid' });
   if (url.searchParams.get('error')) throw Object.assign(new Error('Google sign-in was cancelled or denied.'), { status: 401, code: 'oauth_denied' });
   const code = url.searchParams.get('code'); if (!code) throw Object.assign(new Error('OAuth authorization code is missing.'), { status: 400, code: 'oauth_code_missing' });
@@ -70,8 +71,17 @@ async function callback(request, env) {
   const [identity, membership] = await Promise.all([userInfo(tokens.access_token), resolveMembership(env.NEWSPAPER_CLASSROOM_ID, tokens.access_token)]);
   const expires = Math.min(Date.now() + SESSION_SECONDS * 1000, Date.now() + Number(tokens.expires_in || SESSION_SECONDS) * 1000);
   const value = await seal({ sub: identity.sub, name: identity.name, email: identity.email, role: membership.role, studentId: membership.studentId, classroomUserId: membership.classroomUserId, courseId: env.NEWSPAPER_CLASSROOM_ID, accessToken: tokens.access_token, exp: expires }, env.SESSION_SECRET);
-  const target = membership.role === 'admin' ? '/admin/' : '/student/';
-  return new Response(null, { status: 302, headers: [['Location', `${env.FRONTEND_ORIGIN}${saved.returnTo === '/' ? target : saved.returnTo}`], ['Set-Cookie', setCookie(SESSION_COOKIE, value, SESSION_SECONDS)], ['Set-Cookie', clearCookie(STATE_COOKIE)], ['Cache-Control','no-store']] });
+  return new Response(null, { status: 302, headers: [['Location', callbackRedirect(url, membership.role)], ['Set-Cookie', setCookie(SESSION_COOKIE, value, SESSION_SECONDS)], ['Set-Cookie', clearCookie(STATE_COOKIE)], ['Cache-Control','no-store']] });
+}
+
+export function callbackRedirect(url, role) {
+  return `${url.origin}${role === 'admin' ? '/editorial/admin/' : '/editorial/student/'}`;
+}
+
+async function routeEditorial(request, env, pathname) {
+  if (!['GET', 'HEAD'].includes(request.method)) return response({ error: { code: 'method_not_allowed', message: 'Method not allowed.' } }, 405, env, { Allow: 'GET, HEAD' });
+  if (pathname === '/editorial' || pathname === '/editorial/') return new Response(null, { status: 302, headers: { Location: '/editorial/login/', 'Cache-Control': 'no-store' } });
+  return env.ASSETS.fetch(request);
 }
 
 async function collectArticles(issue, token, viewer) {
@@ -106,7 +116,7 @@ async function routeApi(request, env, pathname) {
   if(pathname==='/api/photos'&&request.method==='GET'){const issueId=new URL(request.url).searchParams.get('issueId');if(!issueId)throw Object.assign(new Error('issueId is required.'),{status:400,code:'issue_required'});return ok(await repo.listPhotos(issueId,viewer.role==='student'?viewer.studentId:null),env);}
   const photoStatus=pathname.match(/^\/api\/photos\/([^/]+)\/status$/);
   if(photoStatus&&request.method==='PATCH'){requireAdmin(viewer);const input=await request.json();if(!['unreviewed','approved','hold','rejected'].includes(input.status))throw Object.assign(new Error('Invalid photo status.'),{status:400,code:'invalid_status'});return ok(await repo.updatePhotoStatus(photoStatus[1],input.status),env);}
-  if(pathname==='/api/photos/upload'&&request.method==='POST'){if(viewer.role!=='student')throw Object.assign(new Error('Student access required.'),{status:403,code:'student_required'});const form=await request.formData(),file=form.get('file');if(!(file instanceof File)||!allowedPhotoTypes.has(file.type)||file.size>15*1024*1024)throw Object.assign(new Error('Upload a JPEG, PNG, or WebP file no larger than 15 MB.'),{status:400,code:'invalid_photo'});const drive=await uploadToDrive(file,env.DRIVE_UPLOAD_FOLDER_ID,viewer.accessToken);return ok(await repo.createPhoto({issueId:form.get('issueId'),articleSubmissionId:form.get('articleSubmissionId'),studentGoogleId:viewer.studentId,driveFileId:drive.id,filename:drive.name,mimeType:drive.mimeType,byteSize:Number(drive.size||file.size),caption:String(form.get('caption')||'').slice(0,1000),photographer:String(form.get('photographer')||'').slice(0,200),sourceType:String(form.get('sourceType')||'').slice(0,100)}),env,201);}
+  if(pathname==='/api/photos/upload'&&request.method==='POST'){if(viewer.role!=='student')throw Object.assign(new Error('Student access required.'),{status:403,code:'student_required'});const form=await request.formData(),file=form.get('file'),issueId=String(form.get('issueId')||''),articleSubmissionId=String(form.get('articleSubmissionId')||''),issue=await repo.getIssue(issueId);if(!issue)throw Object.assign(new Error('Issue not found.'),{status:404,code:'issue_not_found'});const ownedArticle=(await collectArticles(issue,viewer.accessToken,viewer)).find(article=>article.id===articleSubmissionId);if(!ownedArticle)throw Object.assign(new Error('Select one of your own article submissions.'),{status:403,code:'article_forbidden'});if(!(file instanceof File)||!allowedPhotoTypes.has(file.type)||file.size>15*1024*1024)throw Object.assign(new Error('Upload a JPEG, PNG, or WebP file no larger than 15 MB.'),{status:400,code:'invalid_photo'});const drive=await uploadToDrive(file,env.DRIVE_UPLOAD_FOLDER_ID,viewer.accessToken);return ok(await repo.createPhoto({issueId,articleSubmissionId,studentGoogleId:viewer.studentId,driveFileId:drive.id,filename:drive.name,mimeType:drive.mimeType,byteSize:Number(drive.size||file.size),caption:String(form.get('caption')||'').slice(0,1000),photographer:String(form.get('photographer')||'').slice(0,200),sourceType:String(form.get('sourceType')||'').slice(0,100)}),env,201);}
   throw Object.assign(new Error('API route not found.'), { status: 404, code: 'not_found' });
 }
 
@@ -117,9 +127,10 @@ export default {
       if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors(env) });
       if (url.pathname === '/auth/login' && request.method === 'GET') return login(request, env);
       if (url.pathname === '/auth/callback' && request.method === 'GET') return callback(request, env);
-      if (url.pathname === '/auth/logout' && request.method === 'POST') { requireTrustedOrigin(request, env); return ok({ authenticated: false }, env, 200, { 'Set-Cookie': clearCookie(SESSION_COOKIE) }); }
+      if (url.pathname === '/auth/logout' && request.method === 'POST') { requireTrustedOrigin(request); return ok({ authenticated: false }, env, 200, { 'Set-Cookie': clearCookie(SESSION_COOKIE) }); }
       if (url.pathname === '/api/session' && request.method === 'GET' && !cookie(request, SESSION_COOKIE)) return ok({ authenticated: false, user: null }, env);
-      if (url.pathname.startsWith('/api/')) { requireTrustedOrigin(request, env); return await routeApi(request, env, url.pathname); }
+      if (url.pathname.startsWith('/api/')) { requireTrustedOrigin(request); return await routeApi(request, env, url.pathname); }
+      if (url.pathname === '/editorial' || url.pathname.startsWith('/editorial/')) return routeEditorial(request, env, url.pathname);
       return ok({ service: 'The Lions Pride Editorial API', status: 'ok' }, env);
     } catch (error) { console.error(JSON.stringify({ code:error.code||'internal_error', status:error.status||500 })); return fail(error, env); }
   }
