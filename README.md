@@ -8,30 +8,30 @@
 
 | 영역 | 역할 |
 | --- | --- |
-| GitHub Pages | 공개 홈페이지, `/login/`, `/student/`, `/admin/` 정적 UI |
-| Cloudflare Worker | Google OAuth, Classroom 역할 판별, 서버 세션, 권한 검사, API |
+| GitHub Pages | 공개 홈페이지, Archive, 공개 네비게이션 |
+| Cloudflare Worker | `/editorial/*` 내부 UI, Google OAuth, Classroom 역할 판별, 서버 세션, 권한 검사, API |
 | Google Classroom/Docs | 구성원·과제·제출물과 읽기 전용 기사 원문 |
 | Cloudflare D1 | Issue 설정, 별도 편집본, 메모/공개 범위, 검토 상태, 사진 메타데이터 |
 | Private Google Drive | 학생 사진 파일과 최종 신문 PDF |
 | `data/issues.json` | 공개 Archive의 검토·커밋된 발행 목록 |
 
-운영 API는 `https://lions-pride-editorial-api.editor-936.workers.dev`입니다. 프런트엔드는 항상 이 API를 사용하며 브라우저 `localStorage`/`sessionStorage`의 mock 권한이나 데이터를 사용하지 않습니다. 과거 mock 구현 파일은 개발 참고용으로만 남아 있고 production factory에서 import되지 않습니다.
+정식 로그인 URL은 `https://lions-pride-editorial-api.editor-936.workers.dev/editorial/login/`입니다. 공개 사이트의 LOGIN 링크만 이 주소로 이동하며, 내부 UI와 API/OAuth/session cookie는 모두 같은 Worker origin을 사용합니다. 프런트엔드 API base는 빈 문자열이고 `/api/...` 상대 경로만 사용합니다. 브라우저 `localStorage`/`sessionStorage`의 mock 권한이나 데이터를 사용하지 않으며, 과거 mock 구현 파일은 개발 참고용으로만 남아 있고 production factory에서 import되지 않습니다.
 
 ## 로그인과 권한
 
-1. `/login/`에서 학교 Google 계정으로 로그인합니다.
+1. Worker의 `/editorial/login/`에서 학교 Google 계정으로 로그인합니다.
 2. Worker가 Authorization Code + PKCE를 완료하고 설정된 신문부 Classroom의 현재 membership을 확인합니다.
 3. Classroom teacher는 `admin`, student는 `student` 세션을 받습니다. 비구성원은 거부됩니다.
-4. `/admin/`과 `/student/`는 `GET /api/session` 결과로 분기하며, 세션이 없으면 `/login/`으로 이동합니다.
+4. `/editorial/admin/`과 `/editorial/student/`는 same-origin `GET /api/session` 결과로 분기하며, 세션이 없으면 `/editorial/login/`으로 이동합니다.
 
-세션 쿠키는 `Secure`, `HttpOnly`, `SameSite=None`입니다. 변경 요청은 정확한 `FRONTEND_ORIGIN`과 `X-Editorial-CSRF` 헤더가 모두 필요합니다. 학생 기사·사진 조회는 서버 세션에서 얻은 Classroom 학생 ID로 다시 제한하며, 내부 메모는 학생 응답에서 제거합니다.
+세션과 OAuth state 쿠키는 `__Host-` 이름, `Path=/`, `Secure`, `HttpOnly`, `SameSite=Lax`를 사용합니다. 변경 요청은 요청 URL과 같은 `Origin` 및 `X-Editorial-CSRF` 헤더가 모두 필요합니다. 초기 session 조회가 401/403 또는 네트워크 오류로 실패해도 로그인 화면은 미인증 상태로 열려 새 Google 로그인을 시작할 수 있습니다. 학생 기사·사진 조회는 서버 세션에서 얻은 Classroom 학생 ID로 다시 제한하며, 내부 메모는 학생 응답에서 제거합니다.
 
 ## 관리자 운영 절차
 
 ### 새 Issue와 Classroom 과제 연결
 
 1. Google Classroom에서 기사 유형별 과제를 먼저 만듭니다.
-2. `/admin/` → **호 설정**에서 새 Issue 이름, 연도, 시즌을 입력합니다.
+2. `/editorial/admin/` → **호 설정**에서 새 Issue 이름, 연도, 시즌을 입력합니다.
 3. 설정된 신문부 Classroom을 선택합니다.
 4. 실제 courseWork 목록에서 각 기사 유형의 과제를 직접 선택합니다.
 5. 저장 후 Issue를 **Set active**로 활성화합니다.
@@ -64,7 +64,7 @@ Cloudflare 일반 변수:
 
 | 이름 | 값 |
 | --- | --- |
-| `FRONTEND_ORIGIN` | `https://jdlions.github.io` |
+| `EDITORIAL_ORIGIN` | `https://lions-pride-editorial-api.editor-936.workers.dev` |
 | `OAUTH_REDIRECT_URI` | `https://lions-pride-editorial-api.editor-936.workers.dev/auth/callback` |
 | `NEWSPAPER_CLASSROOM_ID` | 신문부 Classroom의 stable course ID |
 | `DRIVE_UPLOAD_FOLDER_ID` | 학교가 관리하는 비공개 Drive 폴더 ID |
@@ -79,7 +79,7 @@ npm run db:remote
 npm run deploy
 ```
 
-프런트엔드만 변경한 경우 Worker 재배포는 필요 없습니다. `worker/src`, migration, `wrangler.toml` 또는 Worker 환경 설정을 바꾼 경우 테스트 후 재배포합니다.
+`npm run deploy`는 한글 Liquid Glass UI의 production 의존 파일만 `worker/.static/editorial/`에 생성한 뒤 Worker static assets와 코드를 함께 배포합니다. `.static`은 생성물이라 커밋하지 않습니다. 내부 UI, `worker/src`, migration, `wrangler.toml` 또는 Worker 환경 설정을 바꾼 경우 테스트 후 Worker를 재배포해야 합니다. 공개 홈페이지만 변경한 경우에는 Worker 재배포가 필요 없습니다.
 
 ## 검증
 
@@ -94,10 +94,10 @@ npm run check
 
 ## 배포와 롤백
 
-- GitHub Pages: 변경 브랜치에서 PR을 만들고 검증 후 `main`에 merge합니다. 직접 push하지 않습니다.
-- Worker: 위 명령으로 별도 배포합니다. 기존 운영 변수와 secrets는 그대로 보존합니다.
-- 프런트엔드 롤백: 문제 PR의 merge commit을 새 revert PR로 되돌립니다.
-- Worker 롤백: Cloudflare Deployments에서 직전 정상 배포를 선택해 rollback한 뒤 원인을 수정한 PR을 만듭니다.
+- GitHub Pages: 변경 브랜치에서 PR을 만들고 검증 후 `main`에 merge합니다. 직접 push하지 않습니다. 기존 `/login/`, `/admin/`, `/student/`는 session 실패를 미인증으로 처리하고 Worker 정식 로그인으로 안전하게 넘깁니다.
+- Worker: 위 명령으로 내부 UI와 API를 함께 배포합니다. 기존 운영 변수와 secrets는 그대로 보존합니다. Google OAuth console의 authorized redirect URI는 위 `OAUTH_REDIRECT_URI`와 정확히 일치해야 합니다.
+- 공개 사이트 롤백: 문제 PR의 merge commit을 새 revert PR로 되돌립니다.
+- Worker 롤백: Cloudflare Deployments에서 UI와 API가 함께 들어 있는 직전 정상 배포를 선택해 rollback한 뒤 원인을 수정한 PR을 만듭니다. 롤백 시 LOGIN 링크와 Worker 배포 버전의 호환성도 확인합니다.
 - D1 migration은 적용 전에 백업하고, destructive rollback 대신 forward-fix migration을 사용합니다.
 
 ## 보안 원칙

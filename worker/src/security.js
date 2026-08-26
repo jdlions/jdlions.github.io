@@ -31,10 +31,10 @@ export function cookie(request, name) {
 }
 
 export function setCookie(name, value, maxAge) {
-  return `${name}=${encodeURIComponent(value)}; Path=/; Max-Age=${maxAge}; Secure; HttpOnly; SameSite=None`;
+  return `${name}=${encodeURIComponent(value)}; Path=/; Max-Age=${maxAge}; Secure; HttpOnly; SameSite=Lax`;
 }
 
-export const clearCookie = name => `${name}=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=None`;
+export const clearCookie = name => `${name}=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax`;
 
 const allowedTags = new Set(['p','br','strong','b','em','i','u','h2','h3','ul','ol','li','blockquote','a']);
 const voidTags = new Set(['br']);
@@ -109,9 +109,9 @@ export function sanitizeHtml(input = '') {
   return output;
 }
 
-export function requireTrustedOrigin(request, env) {
+export function requireTrustedOrigin(request) {
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method)) return;
-  if (request.headers.get('Origin') !== env.FRONTEND_ORIGIN || request.headers.get('X-Editorial-CSRF') !== '1') {
+  if (request.headers.get('Origin') !== new URL(request.url).origin || request.headers.get('X-Editorial-CSRF') !== '1') {
     throw Object.assign(new Error('Request origin or CSRF header rejected.'), { status: 403, code: 'csrf_rejected' });
   }
 }

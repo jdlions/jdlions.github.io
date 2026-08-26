@@ -12,7 +12,7 @@ if sorted(i['number'] for i in issues)!=list(range(16,34)): errors.append('archi
 for i in issues:
  if not i['url'].startswith('https://drive.google.com/'): errors.append(f'invalid archive URL: {i["label"]}')
 index=(root/'index.html').read_text(encoding='utf-8')
-for needle in ['./login/','id="archive-list"','assets/js/public/archive.js','The Lion\'s Pride — 2026 Winter Edition']:
+for needle in ['https://lions-pride-editorial-api.editor-936.workers.dev/editorial/login/','id="archive-list"','assets/js/public/archive.js','The Lion\'s Pride — 2026 Winter Edition']:
  if needle not in index: errors.append(f'public integration missing {needle}')
 mock=(root/'assets/js/data/mock-data.js').read_text(encoding='utf-8')
 for forbidden in ['client_secret','refresh_token','ghp_','AIza']:
