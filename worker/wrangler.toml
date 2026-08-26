@@ -6,9 +6,7 @@ compatibility_date = "2026-08-01"
 FRONTEND_ORIGIN = "https://jdlions.github.io"
 OAUTH_REDIRECT_URI = "https://lions-pride-editorial-api.editor-936.workers.dev/auth/callback"
 
-# Add after `wrangler d1 create editorial-production`:
-# [[d1_databases]]
-# binding = "DB"
-# database_name = "editorial-production"
-# database_id = "replace-with-generated-id"
-
+[[d1_databases]]
+binding = "DB"
+database_name = "editorial-production"
+database_id = "ad7878f5-4347-441d-835e-37254299dfda"
