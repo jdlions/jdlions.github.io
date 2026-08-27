@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import worker, { callbackRedirect, classroomAttachments, configuredCourses, editForViewer, loadArticleOriginal, publicRoster, selectGoogleDocAttachment } from '../src/index.js';
+import worker, { callbackRedirect, classroomAttachments, configuredCourses, editForViewer, loadArticleOriginal, publicRoster, selectArticleAttachment, selectGoogleDocAttachment } from '../src/index.js';
 
 test('student article list and detail views omit internal editor notes', () => {
   const internal = { submission_id: 'article-1', editor_note: 'staff only', note_visibility: 'internal', status: 'reviewing' };
@@ -53,6 +53,13 @@ test('a Google Docs attachment is selected from multiple attachments', async () 
   assert.equal(selected.mimeType,'application/vnd.google-apps.document');
 });
 
+test('article-form DOCX is selected from multiple attachments instead of the first file', async () => {
+  const attachments=[{id:'pdf',kind:'driveFile',name:'notes.pdf',mimeType:'application/pdf'},{id:'generic',kind:'driveFile',name:'draft.docx',mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'},{id:'article',kind:'driveFile',name:'20403김재상 - 피처기사article form.docx',mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}];
+  const selected=await selectArticleAttachment(attachments,'token');
+  assert.equal(selected.type,'docx');
+  assert.equal(selected.attachment.id,'article');
+});
+
 test('Classroom attachment metadata retains non-Drive types', () => {
   const values=classroomAttachments({assignmentSubmission:{attachments:[{link:{url:'https://example.test'}},{driveFile:{id:'file',mimeType:'application/pdf'}}]}});
   assert.deepEqual(values.map(value=>value.kind),['link','driveFile']);
@@ -77,6 +84,26 @@ test('Google Docs attachment is the fallback original source', async () => {
   const result=await loadArticleOriginal({assignmentSubmission:{attachments:[{driveFile:{id:'doc',mimeType:'application/vnd.google-apps.document'}}]}},'token',{read:async()=>({text:'Doc body'})});
   assert.equal(result.originalContentSource,'google_doc');
   assert.equal(result.originalContent,'<p>Doc body</p>');
+});
+
+test('DOCX detail returns structured fields, escaped fallback text, and Drive link', async () => {
+  const parsed={text:'Body <unsafe>',fields:{studentNumber:'20403',studentName:'김재상',koreanTitle:'한글 제목',englishTitle:'English title',articleBody:'Body <unsafe>'}};
+  const result=await loadArticleOriginal({assignmentSubmission:{attachments:[{driveFile:{id:'docx',name:'article form.docx',mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}}]}},'token',{download:async()=>new Uint8Array([1]),parseDocx:()=>parsed});
+  assert.equal(result.originalContentSource,'docx');
+  assert.equal(result.studentNumber,'20403');
+  assert.equal(result.koreanTitle,'한글 제목');
+  assert.equal(result.originalContent,'<p>Body &lt;unsafe&gt;</p>');
+  assert.match(result.sourceUrl,/drive\.google\.com/);
+});
+
+test('corrupt and oversized DOCX failures stay isolated to their article', async t => {
+  for (const code of ['docx_parse_error','docx_oversize']) await t.test(code,async()=>{
+    const result=await loadArticleOriginal({assignmentSubmission:{attachments:[{driveFile:{id:'docx',name:'article.docx',mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}}]}},'token',{download:async()=>new Uint8Array([1]),parseDocx:()=>{throw Object.assign(new Error('bad'),{code});}});
+    assert.equal(result.originalContentSource,'docx');
+    assert.equal(result.originalContentState.status,'error');
+    assert.equal(result.originalContentState.code,code);
+    assert.match(result.sourceUrl,/drive\.google\.com/);
+  });
 });
 
 test('unsupported attachment returns a normal explicit state', async () => {
