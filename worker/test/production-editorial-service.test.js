@@ -68,6 +68,22 @@ test('login copy consistently identifies the English newspaper club', async () =
   assert.doesNotMatch(html,/(^|[^영자])신문부 Classroom 구성원/);
 });
 
+test('public and internal surfaces use the PrideDesk brand and shared credit', async () => {
+  const [home,login,admin,student]=await Promise.all([
+    readFile(new URL('../../index.html',import.meta.url),'utf8'),
+    readFile(new URL('../../login/index.html',import.meta.url),'utf8'),
+    readFile(new URL('../../admin/index.html',import.meta.url),'utf8'),
+    readFile(new URL('../../student/index.html',import.meta.url),'utf8')
+  ]);
+  assert.match(home,/class="nav-social"/);
+  assert.match(home,/class="nav-workspace" href="https:\/\/lions-pride-editorial-api\.editor-936\.workers\.dev\/editorial\/login\/"/);
+  for(const html of [login,admin,student]){
+    assert.match(html,/PrideDesk/);
+    assert.match(html,/Website &amp; PrideDesk by/);
+    assert.match(html,/35기 Hyunseung Yu/);
+  }
+});
+
 test('admin and student apps render loading and retry states without top-level service await', async () => {
   const [container,admin,student]=await Promise.all([
     readFile(new URL('../../assets/js/services/service-container.js',import.meta.url),'utf8'),

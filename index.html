@@ -4,6 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>The Lion's Pride</title>
+  <meta name="description" content="The Lion's Pride — 중동고등학교 영자신문부 공식 홈페이지와 역대 발행호 아카이브.">
   <link rel="icon" type="image/png" href="./cleanlogo.png">
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
@@ -50,8 +51,6 @@
     .nav-links { display: flex; justify-content:center; gap: clamp(20px,2.4vw,34px); list-style: none; }
     .nav-links a { font-size: 0.8rem; font-weight: 400; color: var(--silver); text-decoration: none; transition: color 0.2s; }
     .nav-links a:hover { color: var(--white); }
-    .nav-login { color: var(--gold) !important; }
-    .nav-login-compact { display: none; }
     .nav-ig {
       display: flex; align-items: center; gap: 6px;
       font-size: 0.75rem; font-weight: 500; color: var(--silver);
@@ -59,6 +58,20 @@
     }
     .nav-ig:hover { color: var(--gold); }
     .nav-actions { display:flex;align-items:center;justify-content:flex-end;gap:12px;min-width:0; }
+    .nav-social { display:flex;align-items:center;gap:12px; }
+    .nav-workspace {
+      display:flex;align-items:center;gap:9px;margin-left:4px;padding:7px 12px 7px 10px;
+      color:var(--white);text-decoration:none;border:1px solid rgba(201,168,76,.32);
+      border-radius:12px;background:linear-gradient(135deg,rgba(201,168,76,.14),rgba(255,255,255,.055));
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.1);transition:background .2s,border-color .2s,transform .2s;
+    }
+    .nav-workspace::before { content:"";width:1px;height:26px;background:var(--glass-b);margin-left:-17px;margin-right:7px; }
+    .nav-workspace:hover { background:linear-gradient(135deg,rgba(201,168,76,.23),rgba(255,255,255,.08));border-color:rgba(201,168,76,.55);transform:translateY(-1px); }
+    .nav-workspace:focus-visible,.nav-ig:focus-visible,.nav-links a:focus-visible { outline:2px solid var(--gold);outline-offset:4px; }
+    .workspace-icon { width:17px;height:17px;color:var(--gold);flex:0 0 auto; }
+    .workspace-copy { display:flex;flex-direction:column;line-height:1.08; }
+    .workspace-copy strong { font-size:.73rem;font-weight:600;letter-spacing:.01em; }
+    .workspace-copy small { margin-top:3px;color:var(--silver);font-size:.52rem;white-space:nowrap; }
 
     /* HERO */
     #hero {
@@ -291,8 +304,10 @@
     @media (max-width: 860px) {
       nav { padding: 0 20px; grid-template-columns:1fr auto; }
       .nav-links { display: none; }
-      .nav-login-compact { display: flex; }
       .nav-actions #nav-email-btn { display:none; }
+      .nav-social { display:none; }
+      .nav-workspace { margin-left:0;padding:8px 10px; }
+      .nav-workspace::before,.workspace-copy small { display:none; }
       .wrap { padding: 72px 20px; }
       #stats { padding: 0 20px; }
       .about-grid, .contact-grid { grid-template-columns: 1fr; }
@@ -328,8 +343,8 @@
     <li><a href="#contact">Contact</a></li>
   </ul>
   <div class="nav-actions">
-    <a class="nav-ig nav-login nav-login-compact" href="https://lions-pride-editorial-api.editor-936.workers.dev/editorial/login/" aria-label="Login to editorial workspace">LOGIN</a>
-    <a href="https://instagram.com/joongdong_lp" target="_blank" class="nav-ig">
+    <div class="nav-social" aria-label="The Lion's Pride 소셜 및 연락처">
+    <a href="https://instagram.com/joongdong_lp" target="_blank" rel="noopener noreferrer" class="nav-ig">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/></svg>
       @joongdong_lp
     </a>
@@ -337,6 +352,11 @@
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><polyline points="2,4 12,13 22,4"/></svg>
       <span id="nav-email-text">editor@joongdong.hs.kr</span>
     </span>
+    </div>
+    <a class="nav-workspace" href="https://lions-pride-editorial-api.editor-936.workers.dev/editorial/login/" aria-label="PrideDesk 로그인 — 영자신문부 편집 시스템">
+      <svg class="workspace-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="4" y="9" width="16" height="11" rx="3"/><path d="M8 9V7a4 4 0 0 1 8 0v2"/><path d="M12 13v3"/></svg>
+      <span class="workspace-copy"><strong>PrideDesk</strong><small>영자신문부 편집 시스템</small></span>
+    </a>
   </div>
   <script>
     function copyNavEmail() {
@@ -642,7 +662,7 @@
   </div>
   <div class="ft-right">
     <div class="ft-copy">© 2026 The Lion's Pride of Joongdong High School. All Rights Reserved.</div>
-    <div class="ft-credit">Website by <span>35기 Hyunseung Yu</span></div>
+    <div class="ft-credit">Website &amp; PrideDesk by <span>35기 Hyunseung Yu</span></div>
   </div>
 </footer>
 
