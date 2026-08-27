@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { classroom, downloadDriveFile, driveFolderPreflight, uploadToDrive, resolveMembership } from '../src/google.js';
+import { classroom, downloadDriveFile, driveFolderPreflight, uploadToDrive, resolveMembership, streamDriveImage } from '../src/google.js';
 
 const originalFetch = globalThis.fetch;
 const CLASSROOM_ORIGIN = 'https://classroom.googleapis.com';
@@ -52,6 +52,20 @@ test('Drive media download rejects declared and actual oversized files', async t
     globalThis.fetch=async()=>new Response(new Uint8Array(101));
     await assert.rejects(downloadDriveFile('file','token',100),error=>error.status===413&&error.code==='docx_oversize');
   });
+});
+
+test('authenticated Drive image stream includes Shared Drive support and accepts safe MIME types', async () => {
+  globalThis.fetch=async(url,init)=>{const parsed=new URL(url);assert.equal(parsed.pathname,'/drive/v3/files/photo%2Fid');assert.equal(parsed.searchParams.get('alt'),'media');assert.equal(parsed.searchParams.get('supportsAllDrives'),'true');assert.equal(init.headers.Authorization,'Bearer private-token');return new Response(new Uint8Array([1,2,3]),{headers:{'Content-Type':'image/webp','Content-Length':'3'}});};
+  const media=await streamDriveImage('photo/id','private-token');
+  assert.equal(media.contentType,'image/webp');assert.equal(media.contentLength,'3');
+});
+
+test('Drive image stream blocks SVG and HTML active content', async t => {
+  for(const type of ['image/svg+xml','text/html'])await t.test(type,async()=>{globalThis.fetch=async()=>new Response('<active>',{headers:{'Content-Type':type}});await assert.rejects(streamDriveImage('photo','token'),error=>error.status===415&&error.code==='photo_content_type_blocked');});
+});
+
+test('Drive image stream maps 403, 404, and 5xx without leaking upstream bodies', async t => {
+  for(const [status,code]of [[403,'photo_content_forbidden'],[404,'photo_content_not_found'],[500,'photo_content_unavailable']])await t.test(String(status),async()=>{globalThis.fetch=async()=>new Response('secret upstream body',{status});await assert.rejects(streamDriveImage('photo','token'),error=>error.code===code&&!JSON.stringify(error).includes('secret upstream body'));});
 });
 
 test('teacher membership uses the stable Classroom user ID and returns admin', async () => {

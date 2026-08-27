@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import worker, { callbackRedirect, classroomAttachments, configuredCourses, createPhotoAfterDrive, editForViewer, loadArticleOriginal, publicRoster, selectArticleAttachment, selectGoogleDocAttachment, validateStudentPhoto } from '../src/index.js';
+import worker, { authorizePhotoViewer, callbackRedirect, classroomAttachments, configuredCourses, createPhotoAfterDrive, editForViewer, loadArticleOriginal, photoContentResponse, photoForClient, publicRoster, selectArticleAttachment, selectGoogleDocAttachment, validateStudentPhoto } from '../src/index.js';
 
 test('D1 photo failure deletes the uploaded Drive file before returning a retryable error',async()=>{
   const removed=[];
@@ -21,6 +21,35 @@ test('student photo validation preserves ownership, file types, and 15 MB limit'
   assert.throws(()=>validateStudentPhoto(new File(['x'],'bad.gif',{type:'image/gif'}),'owned',articles),error=>error.code==='invalid_photo');
   assert.throws(()=>validateStudentPhoto(new File([new Uint8Array(15*1024*1024+1)],'large.jpg',{type:'image/jpeg'}),'owned',articles),error=>error.code==='invalid_photo');
   assert.throws(()=>validateStudentPhoto(new File(['x'],'photo.jpg',{type:'image/jpeg'}),'someone-elses',articles),error=>error.code==='article_forbidden');
+});
+
+test('photo list records expose only authenticated same-origin URLs',()=>{
+  const result=photoForClient({id:'photo/id',drive_file_id:'private-drive-id',rights_confirmed:1});
+  assert.equal(result.contentUrl,'/api/photos/photo%2Fid/content');assert.equal(result.originalUrl,'/api/photos/photo%2Fid/original');assert.equal(result.rightsConfirmed,true);assert.equal(JSON.stringify(result).includes('accessToken'),false);
+});
+
+test('photo authorization permits admin and student owner with matching Classroom submission',async()=>{
+  const photo={id:'photo',issue_id:'issue',student_google_id:'student-1',article_submission_id:'article-1'},issue={id:'issue',classroomCourseId:'newspaper',articleTypes:[]};
+  const repo={getPhoto:async()=>photo,getIssue:async()=>issue};
+  assert.equal(await authorizePhotoViewer(repo,'photo',{role:'admin'},'newspaper'),photo);
+  assert.equal(await authorizePhotoViewer(repo,'photo',{role:'student',studentId:'student-1',accessToken:'token'},'newspaper',async()=>[{id:'article-1',studentId:'student-1'}]),photo);
+});
+
+test('photo authorization hides another student, missing photos, and stale Classroom links',async t=>{
+  const photo={id:'photo',issue_id:'issue',student_google_id:'student-1',article_submission_id:'article-1'},issue={id:'issue',classroomCourseId:'newspaper',articleTypes:[]};
+  await t.test('other student',async()=>assert.rejects(authorizePhotoViewer({getPhoto:async()=>photo,getIssue:async()=>issue},'photo',{role:'student',studentId:'student-2'},'newspaper'),error=>error.status===404));
+  await t.test('nonexistent',async()=>assert.rejects(authorizePhotoViewer({getPhoto:async()=>null},'missing',{role:'admin'},'newspaper'),error=>error.status===404));
+  await t.test('stale article link',async()=>assert.rejects(authorizePhotoViewer({getPhoto:async()=>photo,getIssue:async()=>issue},'photo',{role:'student',studentId:'student-1'},'newspaper',async()=>[]),error=>error.status===404));
+});
+
+test('photo response streams inline with private anti-sniff headers',async()=>{
+  const response=await photoContentResponse({drive_file_id:'drive',filename:'교내 사진.webp'},'token',async(id,token)=>{assert.equal(id,'drive');assert.equal(token,'token');return{body:new Blob(['image']).stream(),contentType:'image/webp',contentLength:'5'};});
+  assert.equal(response.status,200);assert.equal(response.headers.get('content-type'),'image/webp');assert.equal(response.headers.get('cache-control'),'private, no-store');assert.equal(response.headers.get('x-content-type-options'),'nosniff');assert.match(response.headers.get('content-disposition'),/^inline;/);assert.equal(await response.text(),'image');
+});
+
+test('unauthenticated photo content request returns 401',async()=>{
+  const response=await worker.fetch(new Request('https://example.test/api/photos/photo/content',{headers:{Origin:'https://example.test'}}),{SESSION_SECRET:'secret',NEWSPAPER_CLASSROOM_ID:'newspaper'});
+  assert.equal(response.status,401);assert.equal((await response.json()).error.code,'authentication_required');
 });
 
 test('student article list and detail views omit internal editor notes', () => {

@@ -18,6 +18,9 @@ export function normalizePhoto(row) {
     byteSize,
     fileSize: row.fileSize ?? (Number.isFinite(Number(byteSize)) ? `${(Number(byteSize) / 1024 / 1024).toFixed(1)} MB` : ''),
     sourceType: row.sourceType ?? row.source_type,
+    rightsConfirmed: Boolean(row.rightsConfirmed ?? row.rights_confirmed ?? true),
+    contentUrl: row.contentUrl || (row.id ? `/api/photos/${encodeURIComponent(row.id)}/content` : ''),
+    originalUrl: row.originalUrl || (row.id ? `/api/photos/${encodeURIComponent(row.id)}/original` : ''),
     createdAt: row.createdAt ?? row.created_at,
     updatedAt: row.updatedAt ?? row.updated_at
   };
@@ -53,7 +56,7 @@ export class ProductionEditorialService {
   async createIssue(input){const pending={...input,id:`pending-${Date.now()}`,status:input.status||'draft',createdAt:new Date().toISOString()};this.state.issues.push(pending);const issue=await api('/api/issues',{method:'POST',body:JSON.stringify(input)});Object.assign(pending,issue);return pending;}
   async saveArticleEdit(id,editedHtml,editorNote,noteVisibility='internal',status){const row=this.state.articles.find(x=>x.id===id);Object.assign(row,{editedContent:editedHtml,editorNote,noteVisibility,status:status||row.status});const saved=await api(`/api/articles/${encodeURIComponent(id)}/edit`,{method:'PATCH',body:JSON.stringify({issueId:row.issueId,editedHtml,editorNote,noteVisibility,status:row.status})});Object.assign(row,{editedContent:saved.edited_html,editorNote:saved.editor_note,noteVisibility:saved.note_visibility,status:saved.status});return row;}
   async updateArticleStatus(id,status){const row=this.state.articles.find(x=>x.id===id);return this.saveArticleEdit(id,row.editedContent,row.editorNote,row.noteVisibility,status);}
-  async submitPhotos(input,files){const created=[];for(const file of files){const body=new FormData();Object.entries(input).forEach(([k,v])=>body.append(k,v));body.append('file',file);created.push(normalizePhoto(await api('/api/photos/upload',{method:'POST',body})));}this.state.photos.push(...created);return created;}
+  async submitPhotos(input,files){const created=[];for(const file of files){const body=new FormData();Object.entries(input).forEach(([k,v])=>body.append(k,v));body.append('copyright','true');body.append('file',file);created.push(normalizePhoto(await this.request('/api/photos/upload',{method:'POST',body})));}this.state.photos.unshift(...created);return created;}
   reset(){throw new Error('Production data cannot be reset from the browser.');}
   async setActiveIssue(id){this.state.issues.forEach(x=>x.status=x.id===id?'active':x.status==='active'?'draft':x.status);return api(`/api/issues/${encodeURIComponent(id)}/activate`,{method:'PATCH'});}
   async updatePhotoStatus(id,status){const row=this.state.photos.find(x=>x.id===id);if(row)row.status=status;const saved=normalizePhoto(await api(`/api/photos/${encodeURIComponent(id)}/status`,{method:'PATCH',body:JSON.stringify({status})}));if(row)Object.assign(row,saved);return saved;}
