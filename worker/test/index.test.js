@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import worker, { callbackRedirect, configuredCourses, editForViewer } from '../src/index.js';
+import worker, { callbackRedirect, classroomAttachments, configuredCourses, editForViewer, loadArticleOriginal, selectGoogleDocAttachment } from '../src/index.js';
 
 test('student article list and detail views omit internal editor notes', () => {
   const internal = { submission_id: 'article-1', editor_note: 'staff only', note_visibility: 'internal', status: 'reviewing' };
@@ -37,4 +37,30 @@ test('editorial assets are routed separately from API paths', async () => {
   const session = await worker.fetch(new Request('https://example.test/api/session'), env);
   assert.deepEqual(await session.json(), { authenticated: false, user: null });
   assert.equal(assetPath, null);
+});
+
+test('a non-Docs first attachment is skipped without treating it as a document', async () => {
+  const attachments=[{id:'pdf',kind:'driveFile',mimeType:'application/pdf'},{url:'https://example.test',kind:'link'}];
+  let metadataCalls=0;
+  assert.equal(await selectGoogleDocAttachment(attachments,'token',async()=>{metadataCalls++;}),null);
+  assert.equal(metadataCalls,0);
+});
+
+test('a Google Docs attachment is selected from multiple attachments', async () => {
+  const attachments=[{id:'docx',kind:'driveFile',mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'},{id:'doc',kind:'driveFile'}];
+  const selected=await selectGoogleDocAttachment(attachments,'token',async id=>({id,mimeType:'application/vnd.google-apps.document',name:'Story'}));
+  assert.equal(selected.id,'doc');
+  assert.equal(selected.mimeType,'application/vnd.google-apps.document');
+});
+
+test('Classroom attachment metadata retains non-Drive types', () => {
+  const values=classroomAttachments({assignmentSubmission:{attachments:[{link:{url:'https://example.test'}},{driveFile:{id:'file',mimeType:'application/pdf'}}]}});
+  assert.deepEqual(values.map(value=>value.kind),['link','driveFile']);
+});
+
+test('a Docs 400 is isolated as article-level state instead of rejecting the response', async () => {
+  const result=await loadArticleOriginal([{id:'doc',kind:'driveFile',mimeType:'application/vnd.google-apps.document'}],'token',{read:async()=>{throw Object.assign(new Error('bad doc'),{status:400,code:'google_docs_error'});}});
+  assert.equal(result.originalContent,'');
+  assert.equal(result.originalContentState.status,'error');
+  assert.match(result.originalContentState.message,/400/);
 });

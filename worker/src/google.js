@@ -60,9 +60,13 @@ function docsText(document) {
 
 export async function readDoc(documentId, token) {
   const response = await fetch(`https://docs.googleapis.com/v1/documents/${encodeURIComponent(documentId)}`, { headers: { Authorization: `Bearer ${token}` } });
-  if (!response.ok) throw Object.assign(new Error(`Google Docs request failed (${response.status}).`), { status: response.status === 403 ? 403 : 502, code: 'google_docs_error' });
+  if (!response.ok) throw Object.assign(new Error(`Google Docs request failed (${response.status}).`), { status: [400,403,404].includes(response.status) ? response.status : 502, code: 'google_docs_error' });
   const document = await response.json();
   return { documentId: document.documentId, title: document.title, text: docsText(document) };
+}
+
+export async function driveFileMetadata(fileId, token) {
+  return googleFetch(`/drive/v3/files/${encodeURIComponent(fileId)}?fields=id,name,mimeType,webViewLink`, token);
 }
 
 export async function uploadToDrive(file, folderId, token) {
