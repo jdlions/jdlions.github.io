@@ -91,6 +91,23 @@ export async function downloadDriveFile(fileId, token, maxBytes) {
   return data;
 }
 
+const DRIVE_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+
+export async function streamDriveImage(fileId, token) {
+  const query = new URLSearchParams({ alt: 'media', supportsAllDrives: 'true' });
+  const response = await fetch(`${GOOGLE_API}/drive/v3/files/${encodeURIComponent(fileId)}?${query}`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!response.ok) {
+    const status = response.status === 404 ? 404 : response.status === 401 || response.status === 403 ? 403 : 502;
+    throw Object.assign(new Error('Google Drive image could not be loaded.'), { status, code: status === 404 ? 'photo_content_not_found' : status === 403 ? 'photo_content_forbidden' : 'photo_content_unavailable' });
+  }
+  const contentType = String(response.headers.get('content-type') || '').split(';', 1)[0].trim().toLowerCase();
+  if (!DRIVE_IMAGE_TYPES.has(contentType)) {
+    try { await response.body?.cancel(); } catch {}
+    throw Object.assign(new Error('Drive returned an unsupported image type.'), { status: 415, code: 'photo_content_type_blocked' });
+  }
+  return { body: response.body, contentType, contentLength: response.headers.get('content-length') };
+}
+
 const DRIVE_FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder';
 const SAFE_DRIVE_REASONS = new Set([
   'accessNotConfigured', 'appNotAuthorizedToFile', 'dailyLimitExceeded', 'domainPolicy',
