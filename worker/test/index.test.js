@@ -1,6 +1,27 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import worker, { callbackRedirect, classroomAttachments, configuredCourses, editForViewer, loadArticleOriginal, publicRoster, selectArticleAttachment, selectGoogleDocAttachment } from '../src/index.js';
+import worker, { callbackRedirect, classroomAttachments, configuredCourses, createPhotoAfterDrive, editForViewer, loadArticleOriginal, publicRoster, selectArticleAttachment, selectGoogleDocAttachment, validateStudentPhoto } from '../src/index.js';
+
+test('D1 photo failure deletes the uploaded Drive file before returning a retryable error',async()=>{
+  const removed=[];
+  await assert.rejects(createPhotoAfterDrive({createPhoto:async()=>{throw new Error('D1 unavailable');}},{driveFileId:'drive-file'},'token',async(id,token)=>removed.push([id,token])),error=>error.code==='photo_metadata_save_failed'&&error.status===503);
+  assert.deepEqual(removed,[['drive-file','token']]);
+});
+
+test('D1 photo success does not delete the Drive file',async()=>{
+  let removed=false;
+  const saved=await createPhotoAfterDrive({createPhoto:async photo=>({...photo,id:'photo'})},{driveFileId:'drive-file'},'token',async()=>{removed=true;});
+  assert.equal(saved.id,'photo');assert.equal(removed,false);
+});
+
+test('student photo validation preserves ownership, file types, and 15 MB limit',()=>{
+  const articles=[{id:'owned'}];
+  for(const type of ['image/jpeg','image/png','image/webp'])assert.doesNotThrow(()=>validateStudentPhoto(new File(['x'],'photo',{type}),'owned',articles));
+  assert.doesNotThrow(()=>validateStudentPhoto(new File([new Uint8Array(15*1024*1024)],'limit.jpg',{type:'image/jpeg'}),'owned',articles));
+  assert.throws(()=>validateStudentPhoto(new File(['x'],'bad.gif',{type:'image/gif'}),'owned',articles),error=>error.code==='invalid_photo');
+  assert.throws(()=>validateStudentPhoto(new File([new Uint8Array(15*1024*1024+1)],'large.jpg',{type:'image/jpeg'}),'owned',articles),error=>error.code==='invalid_photo');
+  assert.throws(()=>validateStudentPhoto(new File(['x'],'photo.jpg',{type:'image/jpeg'}),'someone-elses',articles),error=>error.code==='article_forbidden');
+});
 
 test('student article list and detail views omit internal editor notes', () => {
   const internal = { submission_id: 'article-1', editor_note: 'staff only', note_visibility: 'internal', status: 'reviewing' };

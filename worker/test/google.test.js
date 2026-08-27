@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { classroom, downloadDriveFile, resolveMembership } from '../src/google.js';
+import { classroom, downloadDriveFile, driveFolderPreflight, uploadToDrive, resolveMembership } from '../src/google.js';
 
 const originalFetch = globalThis.fetch;
 const CLASSROOM_ORIGIN = 'https://classroom.googleapis.com';
@@ -10,6 +10,27 @@ function jsonResponse(body, status = 200) {
 }
 
 test.afterEach(() => { globalThis.fetch = originalFetch; });
+
+test('Drive folder preflight supports shared drives and requires canAddChildren', async () => {
+  globalThis.fetch=async(url,init)=>{const parsed=new URL(url);assert.equal(parsed.pathname,'/drive/v3/files/folder%2Fid');assert.equal(parsed.searchParams.get('supportsAllDrives'),'true');assert.equal(parsed.searchParams.get('fields'),'id,name,mimeType,driveId,capabilities');assert.equal(init.headers.Authorization,'Bearer token');return jsonResponse({id:'folder/id',name:'Private',mimeType:'application/vnd.google-apps.folder',driveId:'shared',capabilities:{canAddChildren:true}});};
+  assert.deepEqual(await driveFolderPreflight('folder/id','token'),{id:'folder/id',name:'Private',mimeType:'application/vnd.google-apps.folder',driveId:'shared',canAddChildren:true});
+});
+
+test('Drive folder preflight maps inaccessible and non-writable folders', async t => {
+  for(const status of [403,404])await t.test(String(status),async()=>{globalThis.fetch=async()=>jsonResponse({error:{errors:[{reason:'fileNotFound'}],message:'private body'}},status);await assert.rejects(driveFolderPreflight('folder','token'),error=>error.code===(status===404?'drive_folder_not_accessible':'drive_permission_denied')&&!JSON.stringify(error).includes('private body'));});
+  await t.test('canAddChildren false',async()=>{globalThis.fetch=async()=>jsonResponse({id:'folder',mimeType:'application/vnd.google-apps.folder',capabilities:{canAddChildren:false}});await assert.rejects(driveFolderPreflight('folder','token'),error=>error.code==='drive_permission_denied');});
+});
+
+test('multipart Drive upload preserves binary bytes, CRLF boundaries, and Shared Drive support', async () => {
+  const binary=new Uint8Array([0,255,13,10,128]);let calls=0;
+  globalThis.fetch=async(url,init)=>{calls++;const parsed=new URL(url);if(calls===1)return jsonResponse({id:'folder',mimeType:'application/vnd.google-apps.folder',capabilities:{canAddChildren:true}});assert.equal(parsed.pathname,'/upload/drive/v3/files');assert.equal(parsed.searchParams.get('uploadType'),'multipart');assert.equal(parsed.searchParams.get('supportsAllDrives'),'true');const boundary=/boundary=(.+)$/.exec(init.headers['Content-Type'])[1],body=new Uint8Array(await init.body.arrayBuffer()),text=new TextDecoder('latin1').decode(body);assert.match(text,new RegExp(`^--${boundary}\\r\\nContent-Type: application/json; charset=UTF-8\\r\\n\\r\\n`));assert.match(text,new RegExp(`\\r\\n--${boundary}\\r\\nContent-Type: image/png\\r\\n\\r\\n`));assert.match(text,new RegExp(`\\r\\n--${boundary}--$`));assert.notEqual(body.findIndex((value,index)=>binary.every((item,offset)=>body[index+offset]===item)), -1);return jsonResponse({id:'photo',name:'사진.png',mimeType:'image/png',size:'5'});};
+  assert.equal((await uploadToDrive(new File([binary],'사진.png',{type:'image/png'}),'folder','token')).id,'photo');
+});
+
+test('Drive upload maps permission, quota, rate limit, and server failures to stable codes',async t=>{
+  const cases=[[403,'insufficientFilePermissions','drive_permission_denied',403],[403,'storageQuotaExceeded','drive_quota_exceeded',429],[429,'userRateLimitExceeded','drive_quota_exceeded',429],[500,'','drive_upload_failed',502]];
+  for(const [status,reason,code,appStatus]of cases)await t.test(`${status} ${reason}`,async()=>{let calls=0;globalThis.fetch=async()=>++calls===1?jsonResponse({id:'folder',mimeType:'application/vnd.google-apps.folder',capabilities:{canAddChildren:true}}):jsonResponse({error:{errors:[{reason}],message:'secret detail',token:'never-log'}},status);await assert.rejects(uploadToDrive(new File(['x'],'x.jpg',{type:'image/jpeg'}),'folder','token'),error=>error.code===code&&error.status===appStatus&&!JSON.stringify(error).includes('secret detail')&&!JSON.stringify(error).includes('never-log'));});
+});
 
 test('Drive media download requests alt=media and returns binary data', async () => {
   globalThis.fetch=async (url,init)=>{

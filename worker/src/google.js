@@ -91,12 +91,54 @@ export async function downloadDriveFile(fileId, token, maxBytes) {
   return data;
 }
 
-export async function uploadToDrive(file, folderId, token) {
+const DRIVE_FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder';
+const SAFE_DRIVE_REASONS = new Set([
+  'accessNotConfigured', 'appNotAuthorizedToFile', 'dailyLimitExceeded', 'domainPolicy',
+  'fileNotFound', 'insufficientFilePermissions', 'rateLimitExceeded', 'sharingRateLimitExceeded',
+  'storageQuotaExceeded', 'teamDriveFileLimitExceeded', 'userRateLimitExceeded'
+]);
+
+async function safeDriveError(response) {
+  let reason = '';
+  try {
+    const body = await response.json();
+    const candidate = body?.error?.errors?.[0]?.reason || body?.error?.status || '';
+    if (SAFE_DRIVE_REASONS.has(candidate)) reason = candidate;
+  } catch {}
+  return { upstreamStatus: response.status, reason };
+}
+
+function driveAppError(kind, upstreamStatus, reason = '') {
+  const quota = upstreamStatus === 429 || ['dailyLimitExceeded', 'rateLimitExceeded', 'sharingRateLimitExceeded', 'storageQuotaExceeded', 'teamDriveFileLimitExceeded', 'userRateLimitExceeded'].includes(reason);
+  if (quota) return Object.assign(new Error('Google Drive quota or rate limit was exceeded.'), { status: 429, code: 'drive_quota_exceeded', upstreamStatus, reason });
+  if (kind === 'folder' && upstreamStatus === 404) return Object.assign(new Error('Drive upload folder is not accessible.'), { status: 403, code: 'drive_folder_not_accessible', upstreamStatus, reason });
+  if (upstreamStatus === 401 || upstreamStatus === 403) return Object.assign(new Error('The current account cannot add files to the Drive upload folder.'), { status: 403, code: 'drive_permission_denied', upstreamStatus, reason });
+  return Object.assign(new Error('Google Drive upload failed.'), { status: 502, code: 'drive_upload_failed', upstreamStatus, reason });
+}
+
+export async function driveFolderPreflight(folderId, token) {
   if (!folderId) throw Object.assign(new Error('Drive upload folder is not configured.'), { status: 503, code: 'drive_folder_unconfigured' });
+  const query = new URLSearchParams({ fields: 'id,name,mimeType,driveId,capabilities', supportsAllDrives: 'true' });
+  const response = await fetch(`${GOOGLE_API}/drive/v3/files/${encodeURIComponent(folderId)}?${query}`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!response.ok) { const safe = await safeDriveError(response); throw driveAppError('folder', safe.upstreamStatus, safe.reason); }
+  const folder = await response.json();
+  if (folder.mimeType !== DRIVE_FOLDER_MIME_TYPE) throw Object.assign(new Error('Configured Drive target is not a folder.'), { status: 503, code: 'drive_folder_not_accessible' });
+  if (folder.capabilities?.canAddChildren !== true) throw Object.assign(new Error('The current account cannot add files to the Drive upload folder.'), { status: 403, code: 'drive_permission_denied' });
+  return { id: folder.id, name: folder.name, mimeType: folder.mimeType, driveId: folder.driveId || null, canAddChildren: true };
+}
+
+export async function uploadToDrive(file, folderId, token) {
+  await driveFolderPreflight(folderId, token);
   const boundary = `lp-${crypto.randomUUID()}`;
   const metadata = JSON.stringify({ name: file.name, parents: [folderId] });
   const body = new Blob([`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n--${boundary}\r\nContent-Type: ${file.type}\r\n\r\n`, file, `\r\n--${boundary}--`]);
-  const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,size', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/related; boundary=${boundary}` }, body });
-  if (!response.ok) throw Object.assign(new Error('Google Drive upload failed.'), { status: 502, code: 'drive_upload_failed' });
+  const query = new URLSearchParams({ uploadType: 'multipart', fields: 'id,name,mimeType,size', supportsAllDrives: 'true' });
+  const response = await fetch(`${GOOGLE_API}/upload/drive/v3/files?${query}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/related; boundary=${boundary}` }, body });
+  if (!response.ok) { const safe = await safeDriveError(response); throw driveAppError('upload', safe.upstreamStatus, safe.reason); }
   return response.json();
+}
+
+export async function deleteDriveFile(fileId, token) {
+  const response = await fetch(`${GOOGLE_API}/drive/v3/files/${encodeURIComponent(fileId)}?supportsAllDrives=true`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+  if (!response.ok && response.status !== 404) { const safe = await safeDriveError(response); throw driveAppError('delete', safe.upstreamStatus, safe.reason); }
 }
