@@ -26,3 +26,27 @@ body:not(.login-page){background:radial-gradient(circle at 82% 5%,rgba(201,168,7
 @media(max-width:760px){.app-sidebar{top:72px}.app-main{margin:0;padding-top:96px}.login-card{padding:30px 22px}.brand-lockup::before{display:none}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important}}
 .login-options--single{grid-template-columns:1fr}
+
+/* PrideDesk brand shell */
+body.app-page{display:flex;min-height:100vh;flex-direction:column}
+.brand-lockup{display:grid;grid-template-columns:30px auto;grid-template-rows:auto auto;column-gap:12px;align-items:center}
+.brand-lockup::before{grid-row:1/3}
+.brand-name{font-size:1rem;line-height:1;font-weight:700;letter-spacing:-.02em}.brand-name span{color:var(--gold)}
+.brand-lockup small{color:var(--muted);font:400 .52rem DM Mono,monospace;letter-spacing:.045em;line-height:1.2}
+.editorial-footer{margin-left:248px;padding:24px clamp(22px,4vw,56px) 30px;border-top:1px solid rgba(255,255,255,.07);color:var(--muted);text-align:right}
+.editorial-footer p{margin:0;font:400 .59rem/1.7 DM Mono,monospace;letter-spacing:.045em}.editorial-footer strong{color:var(--gold);font-weight:500}
+.app-main{flex:1;width:calc(100% - 248px)}
+
+.login-page{display:flex;min-height:100vh;flex-direction:column;padding:0}
+.login-shell{display:grid;flex:1;place-items:center;width:100%;padding:56px 22px 34px}
+.login-card{width:min(720px,100%);padding:46px 48px}
+.transition-label{display:inline-flex;align-items:center;gap:9px;padding:7px 10px;border:1px solid rgba(255,255,255,.1);border-radius:99px;background:rgba(255,255,255,.035);color:var(--muted);font:400 .61rem DM Mono,monospace;letter-spacing:.03em}
+.transition-label strong{color:var(--gold);font-weight:500}
+.login-brand{display:flex;align-items:center;gap:18px;margin:38px 0 20px}.login-mark{display:grid;place-items:center;width:58px;height:58px;flex:0 0 auto;border:1px solid rgba(201,168,76,.45);border-radius:17px;background:linear-gradient(145deg,rgba(201,168,76,.16),rgba(255,255,255,.04));color:var(--gold);font:500 .78rem DM Mono,monospace;box-shadow:inset 0 1px 0 rgba(255,255,255,.15)}
+.login-brand .eyebrow{margin:0 0 7px}.login-card .login-brand h1{margin:0;font-size:clamp(3rem,8vw,5rem);line-height:.86;letter-spacing:-.06em}.login-card .login-brand h1 span{color:var(--gold)}
+.login-kicker{margin:0 0 30px;font-size:1rem;line-height:1.75}.login-card .notice{margin:0 0 18px;border-radius:0 10px 10px 0}
+.login-options .login-google{display:flex;align-items:center;justify-content:center;gap:13px;width:100%;min-height:76px;text-align:left;background:linear-gradient(135deg,#e2ca7e,#b89235);border-color:rgba(255,235,172,.62);color:#07080f;box-shadow:inset 0 1px 0 rgba(255,255,255,.48),0 12px 28px rgba(121,91,20,.2)}.login-google svg{width:22px;height:22px}.login-google span,.login-google b,.login-google small{display:block}.login-google b{font-size:.94rem}.login-google small{margin-top:3px;color:rgba(7,8,15,.67);font-size:.7rem}
+.access-note{margin:18px 0 26px;color:var(--muted);font-size:.75rem;line-height:1.6;text-align:center}.back-link{display:block;width:max-content;max-width:100%;margin:auto;text-decoration:none}.back-link:hover{color:var(--gold)}
+.editorial-footer--login{width:100%;margin:0;padding:20px 22px 26px;text-align:center}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,[contenteditable]:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
+@media(max-width:760px){.app-main{width:100%}.editorial-footer{margin-left:0;padding:22px 16px 26px;text-align:center}.brand-lockup{grid-template-columns:auto}.brand-lockup small{display:none}.login-shell{padding:28px 16px 20px}.login-card{padding:30px 22px}.login-brand{margin:30px 0 18px}.login-mark{width:48px;height:48px;border-radius:14px}.transition-label{font-size:.55rem}.login-google{min-height:72px}.editorial-footer--login{padding:18px 16px 22px}}
