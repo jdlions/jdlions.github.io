@@ -78,7 +78,17 @@ export async function readDoc(documentId, token) {
 }
 
 export async function driveFileMetadata(fileId, token) {
-  return googleFetch(`/drive/v3/files/${encodeURIComponent(fileId)}?fields=id,name,mimeType,webViewLink`, token);
+  return googleFetch(`/drive/v3/files/${encodeURIComponent(fileId)}?fields=id,name,mimeType,size,fileExtension,webViewLink`, token);
+}
+
+export async function downloadDriveFile(fileId, token, maxBytes) {
+  const response = await fetch(`${GOOGLE_API}/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!response.ok) throw Object.assign(new Error(`Google Drive download failed (${response.status}).`), { status: googleErrorStatus(response.status), code: 'drive_download_error' });
+  const declaredSize = Number(response.headers.get('content-length') || 0);
+  if (declaredSize > maxBytes) throw Object.assign(new Error('Drive file exceeds the supported size limit.'), { status: 413, code: 'docx_oversize' });
+  const data = await response.arrayBuffer();
+  if (data.byteLength > maxBytes) throw Object.assign(new Error('Drive file exceeds the supported size limit.'), { status: 413, code: 'docx_oversize' });
+  return data;
 }
 
 export async function uploadToDrive(file, folderId, token) {

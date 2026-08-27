@@ -1,6 +1,7 @@
 import { clearCookie, cookie, randomToken, requireTrustedOrigin, sanitizeHtml, seal, setCookie, STATE_COOKIE, SESSION_COOKIE, unseal } from './security.js';
-import { classroom, driveFileMetadata, exchangeCode, readDoc, resolveMembership, uploadToDrive, userInfo } from './google.js';
+import { classroom, downloadDriveFile, driveFileMetadata, exchangeCode, readDoc, resolveMembership, uploadToDrive, userInfo } from './google.js';
 import { repository } from './repository.js';
+import { DOCX_MIME, MAX_DOCX_BYTES, parseDocx } from './docx.js';
 
 const SESSION_SECONDS = 45 * 60;
 const allowedPhotoTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -64,6 +65,28 @@ export async function selectGoogleDocAttachment(attachments, token, metadata=dri
   return null;
 }
 
+function isDocx(attachment) {
+  return attachment.mimeType === DOCX_MIME || /\.docx$/i.test(attachment.name || attachment.title || '');
+}
+
+function docxScore(attachment) {
+  const name = String(attachment.name || attachment.title || '');
+  return (attachment.mimeType === DOCX_MIME ? 20 : 0) + (/\.docx$/i.test(name) ? 10 : 0) + (/(article|기사|feature|form|template)/i.test(name) ? 5 : 0);
+}
+
+export async function selectArticleAttachment(attachments, token, metadata=driveFileMetadata) {
+  const driveFiles = attachments.filter(attachment => attachment.kind === 'driveFile' && attachment.id);
+  await Promise.all(driveFiles.map(async attachment => {
+    if (attachment.mimeType) return;
+    try { Object.assign(attachment, await metadata(attachment.id, token)); }
+    catch (error) { attachment.metadataError = error.message; }
+  }));
+  const docx = driveFiles.filter(isDocx).sort((left, right) => docxScore(right) - docxScore(left) || String(left.name || '').localeCompare(String(right.name || '')))[0];
+  if (docx) return { type:'docx', attachment:docx };
+  const googleDoc = driveFiles.find(attachment => attachment.mimeType === GOOGLE_DOC_MIME);
+  return googleDoc ? { type:'google_doc', attachment:googleDoc } : null;
+}
+
 function textToParagraphs(value) {
   return String(value).replace(/\r\n?/g, '\n').split(/\n{2,}/).map(paragraph => `<p>${escapeText(paragraph).replace(/\n/g, '<br>')}</p>`).join('');
 }
@@ -81,10 +104,22 @@ export async function loadArticleOriginal(submission, token, dependencies={}) {
   const responseText = classroomResponseText(submission);
   if (responseText) return {selectedAttachment:null,originalContent:textToParagraphs(responseText),originalContentSource:'classroom_response',originalContentState:{status:'available',source:'classroom_response'}};
   const attachments = classroomAttachments(submission);
-  const selectedAttachment=await selectGoogleDocAttachment(attachments,token,dependencies.metadata||driveFileMetadata);
-  if(!selectedAttachment)return {selectedAttachment:null,originalContent:'',originalContentSource:'unsupported_attachment',unsupportedAttachments:unsupportedAttachmentSummary(attachments),originalContentState:{status:'unsupported',source:'unsupported_attachment',message:attachments.length?'첨부된 파일 형식은 원문 미리보기를 지원하지 않습니다. Google Docs 또는 Classroom 짧은 답변을 사용해 주세요.':'제출된 텍스트 답변이나 첨부 원문이 없습니다.'}};
-  try { const doc=await (dependencies.read||readDoc)(selectedAttachment.id,token); return {selectedAttachment,originalContent:textToParagraphs(doc.text),originalContentSource:'google_doc',originalContentState:{status:'available',source:'google_doc'}}; }
-  catch(error){return {selectedAttachment,originalContent:'',originalContentSource:'google_doc',originalContentState:{status:'error',source:'google_doc',code:error.code||'google_docs_error',message:`Google Docs 원문을 불러오지 못했습니다 (${error.status||'unknown'}).`}};}
+  const selection=await selectArticleAttachment(attachments,token,dependencies.metadata||driveFileMetadata);
+  if(!selection)return {selectedAttachment:null,originalContent:'',originalContentSource:'unsupported_attachment',unsupportedAttachments:unsupportedAttachmentSummary(attachments),originalContentState:{status:'unsupported',source:'unsupported_attachment',message:attachments.length?'첨부된 파일 형식은 원문 미리보기를 지원하지 않습니다. DOCX, Google Docs 또는 Classroom 짧은 답변을 사용해 주세요.':'제출된 텍스트 답변이나 첨부 원문이 없습니다.'}};
+  const selectedAttachment=selection.attachment;
+  if(selection.type==='docx') {
+    const sourceUrl=selectedAttachment.webViewLink||`https://drive.google.com/open?id=${encodeURIComponent(selectedAttachment.id)}`;
+    try {
+      if(Number(selectedAttachment.size||0)>MAX_DOCX_BYTES)throw Object.assign(new Error('DOCX file exceeds the supported size limit.'),{status:413,code:'docx_oversize'});
+      const data=await (dependencies.download||downloadDriveFile)(selectedAttachment.id,token,MAX_DOCX_BYTES);
+      const parsed=(dependencies.parseDocx||parseDocx)(data);
+      return {selectedAttachment,sourceUrl,originalContent:textToParagraphs(parsed.text),originalContentText:parsed.text,originalContentSource:'docx',...parsed.fields,originalContentState:{status:'available',source:'docx'}};
+    } catch(error) {
+      return {selectedAttachment,sourceUrl,originalContent:'',originalContentSource:'docx',originalContentState:{status:'error',source:'docx',code:error.code||'docx_parse_error',message:error.code==='docx_oversize'?'DOCX 파일이 8 MB 제한을 초과했습니다. Drive에서 원본을 확인해 주세요.':'DOCX 원문을 읽지 못했습니다. Drive에서 원본을 확인해 주세요.'}};
+    }
+  }
+  try { const doc=await (dependencies.read||readDoc)(selectedAttachment.id,token); return {selectedAttachment,sourceUrl:selectedAttachment.webViewLink||'',originalContent:textToParagraphs(doc.text),originalContentSource:'google_doc',originalContentState:{status:'available',source:'google_doc'}}; }
+  catch(error){return {selectedAttachment,sourceUrl:selectedAttachment.webViewLink||'',originalContent:'',originalContentSource:'google_doc',originalContentState:{status:'error',source:'google_doc',code:error.code||'google_docs_error',message:`Google Docs 원문을 불러오지 못했습니다 (${error.status||'unknown'}).`}};}
 }
 
 export function publicRoster(students) {

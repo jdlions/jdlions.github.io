@@ -10,7 +10,7 @@
 | --- | --- |
 | GitHub Pages | 공개 홈페이지, Archive, 공개 네비게이션 |
 | Cloudflare Worker | `/editorial/*` 내부 UI, Google OAuth, Classroom 역할 판별, 서버 세션, 권한 검사, API |
-| Google Classroom/Docs | 구성원·과제·제출물과 읽기 전용 기사 원문 |
+| Google Classroom/Drive/Docs | 구성원·과제·제출물과 읽기 전용 기사 원문 |
 | Cloudflare D1 | Issue 설정, 별도 편집본, 메모/공개 범위, 검토 상태, 사진 메타데이터 |
 | Private Google Drive | 학생 사진 파일과 최종 신문 PDF |
 | `data/issues.json` | 공개 Archive의 검토·커밋된 발행 목록 |
@@ -40,7 +40,9 @@
 
 ### 기사·사진 편집
 
-- Google Docs 원문은 읽기 전용으로 가져오며 편집본은 D1에 별도로 저장합니다.
+- 기사 원문은 Classroom 짧은 답변, Google Docs, DOCX 제출을 지원하며 읽기 전용으로 가져옵니다. 편집본은 D1에 별도로 저장합니다.
+- 권장 배부 방식은 Classroom `ASSIGNMENT`에서 Word 기사 양식을 학생별로 배부하고, 학생이 완성한 `.docx`를 제출하게 하는 방식입니다. DOCX 양식의 학번, 이름, 기사 제목(한글), 기사 제목(English), Article Body는 가능한 경우 구조화하며, 양식이 달라도 전체 텍스트를 표시합니다.
+- DOCX는 최대 8 MB까지 처리합니다. 손상되었거나 너무 큰 파일, 읽기 권한이 없는 파일은 해당 기사에만 오류를 표시하고 원본 Drive 링크를 제공합니다. 여러 첨부가 있으면 파일명과 MIME 형식으로 기사 DOCX를 우선 선택하며 첫 첨부를 임의로 사용하지 않습니다.
 - 메모는 기본적으로 `internal`입니다. 학생에게 보여야 할 때만 공개 범위를 명시적으로 변경합니다.
 - 학생 사진은 본인의 연결된 제출물에만 업로드할 수 있고, 파일은 비공개 Drive 폴더에 저장됩니다.
 - 지원 사진 형식은 JPEG, PNG, WebP이며 파일당 최대 15MB입니다.
@@ -90,7 +92,7 @@ npm install
 npm run check
 ```
 
-배포 후에는 미로그인 `GET /api/session`, teacher→admin, student→student, 비구성원 거부, 실제 courseWork 연결, Docs 원문 조회, D1 편집본 저장, 내부 메모 비노출, 본인 제출물 제한, Drive 사진 업로드, 로그아웃/만료 세션을 순서대로 확인합니다.
+배포 후에는 미로그인 `GET /api/session`, teacher→admin, student→student, 비구성원 거부, 실제 courseWork 연결, DOCX/Google Docs/짧은 답변 원문 조회, D1 편집본 저장, 내부 메모 비노출, 본인 제출물 제한, Drive 사진 업로드, 로그아웃/만료 세션을 순서대로 확인합니다.
 
 ## 배포와 롤백
 

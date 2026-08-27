@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { classroom, resolveMembership } from '../src/google.js';
+import { classroom, downloadDriveFile, resolveMembership } from '../src/google.js';
 
 const originalFetch = globalThis.fetch;
 const CLASSROOM_ORIGIN = 'https://classroom.googleapis.com';
@@ -10,6 +10,28 @@ function jsonResponse(body, status = 200) {
 }
 
 test.afterEach(() => { globalThis.fetch = originalFetch; });
+
+test('Drive media download requests alt=media and returns binary data', async () => {
+  globalThis.fetch=async (url,init)=>{
+    const parsed=new URL(url);
+    assert.equal(parsed.pathname,'/drive/v3/files/file%2Fid');
+    assert.equal(parsed.searchParams.get('alt'),'media');
+    assert.equal(init.headers.Authorization,'Bearer secret-token');
+    return new Response(new Uint8Array([80,75,3,4]),{headers:{'Content-Length':'4'}});
+  };
+  assert.deepEqual(new Uint8Array(await downloadDriveFile('file/id','secret-token',100)),new Uint8Array([80,75,3,4]));
+});
+
+test('Drive media download rejects declared and actual oversized files', async t => {
+  await t.test('declared size',async()=>{
+    globalThis.fetch=async()=>new Response(new Uint8Array([1]),{headers:{'Content-Length':'101'}});
+    await assert.rejects(downloadDriveFile('file','token',100),error=>error.status===413&&error.code==='docx_oversize');
+  });
+  await t.test('actual size',async()=>{
+    globalThis.fetch=async()=>new Response(new Uint8Array(101));
+    await assert.rejects(downloadDriveFile('file','token',100),error=>error.status===413&&error.code==='docx_oversize');
+  });
+});
 
 test('teacher membership uses the stable Classroom user ID and returns admin', async () => {
   const requested = [];
