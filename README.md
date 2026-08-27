@@ -47,6 +47,22 @@
 - 학생 사진은 본인의 연결된 제출물에만 업로드할 수 있고, 파일은 비공개 Drive 폴더에 저장됩니다.
 - 지원 사진 형식은 JPEG, PNG, WebP이며 파일당 최대 15MB입니다.
 
+### 사진 제출 Drive 폴더 권한
+
+사진 업로드는 로그인한 학생의 OAuth 토큰으로 실행됩니다. 따라서 `DRIVE_UPLOAD_FOLDER_ID`만 설정해서는 충분하지 않으며, **각 학생 계정이 대상 폴더에서 파일을 추가할 수 있어야 합니다**. Worker는 업로드 전에 학생 토큰으로 `files.get(fields=id,name,mimeType,driveId,capabilities&supportsAllDrives=true)`를 호출하고 `capabilities.canAddChildren`을 확인합니다. 폴더가 보이지 않거나 이 값이 `false`이면 코드로 우회하지 않고 제출을 거부합니다.
+
+권장 운영 설정은 다음 중 하나입니다. 공개 링크(`anyone`) 공유는 사용하지 마세요.
+
+1. 권장: 학교 Workspace에서 사진 제출 전용 Shared Drive 또는 그 안의 전용 폴더를 만듭니다.
+2. 영자신문부 학생 Google Group(또는 실제 제출 학생 계정)을 Shared Drive 구성원으로 추가하고 파일 추가가 가능한 `Contributor` 이상 권한을 부여합니다. 폴더 제한 정책이 있다면 해당 폴더에도 파일 추가가 허용되는지 확인합니다.
+3. 대안: 학교 관리자의 My Drive에 비공개 전용 폴더를 만들고 같은 그룹/학생을 `Editor`로 공유합니다. `Viewer`/`Commenter`는 파일을 추가할 수 없습니다.
+4. 폴더 ID를 Cloudflare의 `DRIVE_UPLOAD_FOLDER_ID`에 설정합니다. 학생이 개인 Drive 바로가기만 추가하는 것은 권한 부여가 아닙니다.
+5. 실제 학생 계정으로 다시 로그인한 뒤 제출을 확인합니다. 기존 OAuth 동의에 `drive.file`이 있고 대상 폴더 메타데이터 조회에 필요한 읽기 scope가 유지되어야 합니다. `drive.file`은 앱이 새 파일을 만드는 데 사용할 수 있지만, 임의의 기존 중앙 폴더 접근 권한을 새로 부여하지 않습니다.
+
+배포 후 관리자는 같은 Worker origin에서 로그인한 상태로 `GET /api/photos/folder-status`를 호출해 자신의 현재 토큰 기준 `accessible`, `canAddChildren`, `storage`(`my_drive` 또는 `shared_drive`)만 확인할 수 있습니다. 응답은 폴더 ID와 폴더 이름을 노출하지 않습니다. 학생에게는 이 진단 endpoint가 허용되지 않습니다. 실제 학생 권한은 반드시 학생 계정으로 제출하거나 학생 토큰의 preflight로 확인해야 합니다.
+
+Drive 업로드가 성공한 뒤에만 D1 사진 metadata를 생성합니다. D1 저장이 실패하면 Worker가 방금 만든 Drive 파일을 즉시 삭제하며, 삭제도 실패한 경우에는 토큰·파일 내용·이메일·Google 원문 오류 없이 안정적인 `drive_orphan_cleanup_failed` 코드와 status만 로그에 남깁니다.
+
 ### 공개 Archive 발행
 
 관리자 발행 화면은 최종 Drive URL의 **미리보기만** 제공합니다. Worker/D1 저장만으로 GitHub Pages의 `data/issues.json`은 갱신되지 않으므로 브라우저에는 실제 발행 버튼이 없습니다.
