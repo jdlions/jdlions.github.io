@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import worker, { callbackRedirect, classroomAttachments, configuredCourses, editForViewer, loadArticleOriginal, selectGoogleDocAttachment } from '../src/index.js';
+import worker, { callbackRedirect, classroomAttachments, configuredCourses, editForViewer, loadArticleOriginal, publicRoster, selectGoogleDocAttachment } from '../src/index.js';
 
 test('student article list and detail views omit internal editor notes', () => {
   const internal = { submission_id: 'article-1', editor_note: 'staff only', note_visibility: 'internal', status: 'reviewing' };
@@ -59,8 +59,35 @@ test('Classroom attachment metadata retains non-Drive types', () => {
 });
 
 test('a Docs 400 is isolated as article-level state instead of rejecting the response', async () => {
-  const result=await loadArticleOriginal([{id:'doc',kind:'driveFile',mimeType:'application/vnd.google-apps.document'}],'token',{read:async()=>{throw Object.assign(new Error('bad doc'),{status:400,code:'google_docs_error'});}});
+  const result=await loadArticleOriginal({assignmentSubmission:{attachments:[{driveFile:{id:'doc',mimeType:'application/vnd.google-apps.document'}}]}},'token',{read:async()=>{throw Object.assign(new Error('bad doc'),{status:400,code:'google_docs_error'});}});
   assert.equal(result.originalContent,'');
   assert.equal(result.originalContentState.status,'error');
   assert.match(result.originalContentState.message,/400/);
+});
+
+test('Classroom short answer is escaped and preferred over a Google Doc', async () => {
+  let reads=0;
+  const result=await loadArticleOriginal({shortAnswerSubmission:{answer:'First <script>\nline\n\nSecond & final'},assignmentSubmission:{attachments:[{driveFile:{id:'doc',mimeType:'application/vnd.google-apps.document'}}]}},'token',{read:async()=>{reads++;}});
+  assert.equal(result.originalContentSource,'classroom_response');
+  assert.equal(result.originalContent,'<p>First &lt;script&gt;<br>line</p><p>Second &amp; final</p>');
+  assert.equal(reads,0);
+});
+
+test('Google Docs attachment is the fallback original source', async () => {
+  const result=await loadArticleOriginal({assignmentSubmission:{attachments:[{driveFile:{id:'doc',mimeType:'application/vnd.google-apps.document'}}]}},'token',{read:async()=>({text:'Doc body'})});
+  assert.equal(result.originalContentSource,'google_doc');
+  assert.equal(result.originalContent,'<p>Doc body</p>');
+});
+
+test('unsupported attachment returns a normal explicit state', async () => {
+  const result=await loadArticleOriginal({assignmentSubmission:{attachments:[{driveFile:{id:'pdf',name:'story.pdf',mimeType:'application/pdf'}}]}},'token');
+  assert.equal(result.originalContentSource,'unsupported_attachment');
+  assert.equal(result.originalContentState.status,'unsupported');
+  assert.equal(result.unsupportedAttachments[0].name,'story.pdf');
+});
+
+test('roster exposes only id and actual name with a non-identifying fallback', () => {
+  assert.deepEqual(publicRoster([{userId:'123456',profile:{name:{fullName:'Kim Mina'},emailAddress:'private@example.test'}},{userId:'sensitive-id',profile:{}}]),[{id:'123456',name:'Kim Mina'},{id:'sensitive-id',name:'이름 확인 불가'}]);
+  assert.equal(JSON.stringify(publicRoster([{userId:'sensitive-id',profile:{}}])).includes('private@example.test'),false);
+  assert.equal(publicRoster([{userId:'sensitive-id',profile:{}}])[0].name.includes('sensitive-id'),false);
 });
