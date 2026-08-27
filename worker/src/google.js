@@ -51,7 +51,19 @@ export async function resolveMembership(courseId, accessToken) {
 export const classroom = {
   courses: token => classroomFetch('/v1/courses?courseStates=ACTIVE', token),
   courseWork: (courseId, token) => classroomFetch(`/v1/courses/${encodeURIComponent(courseId)}/courseWork?courseWorkStates=PUBLISHED`, token),
-  submissions: (courseId, workId, token) => classroomFetch(`/v1/courses/${encodeURIComponent(courseId)}/courseWork/${encodeURIComponent(workId)}/studentSubmissions`, token)
+  submissions: (courseId, workId, token) => classroomFetch(`/v1/courses/${encodeURIComponent(courseId)}/courseWork/${encodeURIComponent(workId)}/studentSubmissions`, token),
+  students: async (courseId, token) => {
+    const students = [];
+    let pageToken = '';
+    do {
+      const query = new URLSearchParams({ pageSize: '100' });
+      if (pageToken) query.set('pageToken', pageToken);
+      const data = await classroomFetch(`/v1/courses/${encodeURIComponent(courseId)}/students?${query}`, token);
+      students.push(...(data.students || []));
+      pageToken = data.nextPageToken || '';
+    } while (pageToken);
+    return students;
+  }
 };
 
 function docsText(document) {

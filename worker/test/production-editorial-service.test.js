@@ -49,9 +49,23 @@ test('article detail is fetched once on selection and then cached', async () => 
 
 test('admin requests coursework only for the configured active newspaper Classroom', async () => {
   const calls=[];
-  const request=async path=>{calls.push(path);if(path==='/api/issues')return [{id:'issue-1',status:'active',classroomCourseId:'newspaper'}];if(path.startsWith('/api/articles?')||path.startsWith('/api/photos?'))return [];if(path==='/api/classroom/courses')return {courses:[{id:'other'},{id:'newspaper'}]};if(path==='/api/classroom/newspaper/coursework')return {courseWork:[]};throw new Error(`Unexpected request: ${path}`);};
+  const request=async path=>{calls.push(path);if(path==='/api/issues')return [{id:'issue-1',status:'active',classroomCourseId:'newspaper'}];if(path.startsWith('/api/articles?')||path.startsWith('/api/photos?'))return [];if(path==='/api/classroom/courses')return {courses:[{id:'other'},{id:'newspaper'}]};if(path==='/api/classroom/students')return {students:[{id:'student-1',name:'Kim Mina'}]};if(path==='/api/classroom/newspaper/coursework')return {courseWork:[]};throw new Error(`Unexpected request: ${path}`);};
   await ProductionEditorialService.create({role:'admin'},request);
   assert.deepEqual(calls.filter(path=>path.includes('/coursework')),['/api/classroom/newspaper/coursework']);
+});
+
+test('student startup uses only the signed-in student name and never requests roster', async () => {
+  const calls=[];
+  const request=async path=>{calls.push(path);if(path==='/api/issues')return [];throw new Error(`Unexpected request: ${path}`);};
+  const service=await ProductionEditorialService.create({role:'student',studentId:'student-1',name:'Kim Mina'},request);
+  assert.deepEqual(service.getState().students,[{id:'student-1',name:'Kim Mina'}]);
+  assert.equal(calls.includes('/api/classroom/students'),false);
+});
+
+test('login copy consistently identifies the English newspaper club', async () => {
+  const html=await readFile(new URL('../../login/index.html',import.meta.url),'utf8');
+  assert.match(html,/영자신문부 Classroom 구성원/);
+  assert.doesNotMatch(html,/(^|[^영자])신문부 Classroom 구성원/);
 });
 
 test('admin and student apps render loading and retry states without top-level service await', async () => {

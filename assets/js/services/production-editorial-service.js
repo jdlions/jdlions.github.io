@@ -30,10 +30,10 @@ export class ProductionEditorialService {
   async load() {
     if(!this.session)return this;
     const issues=await this.request('/api/issues'), active=issues.find(x=>x.status==='active');
-    let articles=[],photos=[],courses=[],courseWork=[];
+    let articles=[],photos=[],courses=[],courseWork=[],students=[];
     if(active){[articles,photos]=await Promise.all([this.request(`/api/articles?issueId=${encodeURIComponent(active.id)}`),this.request(`/api/photos?issueId=${encodeURIComponent(active.id)}`)]);photos=photos.map(normalizePhoto);}
-    if(this.session.role==='admin'){const result=await this.request('/api/classroom/courses');courses=selectConfiguredCourses(result.courses||[],active?.classroomCourseId);const course=courses[0];if(course){const result=await this.request(`/api/classroom/${encodeURIComponent(course.id)}/coursework`);courseWork=(result.courseWork||[]).map(x=>({...x,courseId:course.id}));}}
-    const students=[...new Set(articles.map(x=>x.studentId))].map(id=>({id,name:`Classroom user ${id.slice(-6)}`}));
+    if(this.session.role==='admin'){const [courseResult,rosterResult]=await Promise.all([this.request('/api/classroom/courses'),this.request('/api/classroom/students')]);courses=selectConfiguredCourses(courseResult.courses||[],active?.classroomCourseId);students=rosterResult.students||[];const course=courses[0];if(course){const result=await this.request(`/api/classroom/${encodeURIComponent(course.id)}/coursework`);courseWork=(result.courseWork||[]).map(x=>({...x,courseId:course.id}));}}
+    else if(this.session.studentId){students=[{id:this.session.studentId,name:this.session.name||'이름 확인 불가'}];}
     this.state={issues,articles:articles.map(x=>this.normalizeArticle(x)),photos,courses,courseWork,students,publications:[]};
     return this;
   }

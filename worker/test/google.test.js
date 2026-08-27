@@ -97,13 +97,22 @@ test('all Classroom collection methods use the Classroom host and v1 paths', asy
   await classroom.courses('secret-token');
   await classroom.courseWork('course/id', 'secret-token');
   await classroom.submissions('course/id', 'work/id', 'secret-token');
-  assert.deepEqual(requested.map(item => item.url.origin), Array(3).fill(CLASSROOM_ORIGIN));
+  await classroom.students('course/id', 'secret-token');
+  assert.deepEqual(requested.map(item => item.url.origin), Array(4).fill(CLASSROOM_ORIGIN));
   assert.deepEqual(requested.map(item => item.url.pathname), [
     '/v1/courses',
     '/v1/courses/course%2Fid/courseWork',
-    '/v1/courses/course%2Fid/courseWork/work%2Fid/studentSubmissions'
+    '/v1/courses/course%2Fid/courseWork/work%2Fid/studentSubmissions',
+    '/v1/courses/course%2Fid/students'
   ]);
-  assert.deepEqual(requested.map(item => item.authorization), Array(3).fill('Bearer secret-token'));
+  assert.deepEqual(requested.map(item => item.authorization), Array(4).fill('Bearer secret-token'));
+});
+
+test('student roster pagination is deduplicated into one collection result', async () => {
+  const requested=[];
+  globalThis.fetch=async url=>{const parsed=new URL(url);requested.push(parsed.searchParams.get('pageToken'));return requested.length===1?jsonResponse({students:[{userId:'one'}],nextPageToken:'next'}):jsonResponse({students:[{userId:'two'}]});};
+  assert.deepEqual((await classroom.students('course','token')).map(x=>x.userId),['one','two']);
+  assert.deepEqual(requested,[null,'next']);
 });
 
 test('Classroom API status mapping is explicit and does not retain response details', async t => {

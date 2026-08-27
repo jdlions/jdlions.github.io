@@ -40,6 +40,8 @@ async function session(request, env, verifyMembership = true) {
 const requireAdmin = value => { if (value.role !== 'admin') throw Object.assign(new Error('Teacher access required.'), { status: 403, code: 'admin_required' }); };
 const escapeText = value => String(value || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const GOOGLE_DOC_MIME = 'application/vnd.google-apps.document';
+const ROSTER_CACHE_MS = 5 * 60 * 1000;
+const rosterCache = new Map();
 
 export function classroomAttachments(submission) {
   return (submission.assignmentSubmission?.attachments || []).map(attachment => {
@@ -62,11 +64,39 @@ export async function selectGoogleDocAttachment(attachments, token, metadata=dri
   return null;
 }
 
-export async function loadArticleOriginal(attachments, token, dependencies={}) {
+function textToParagraphs(value) {
+  return String(value).replace(/\r\n?/g, '\n').split(/\n{2,}/).map(paragraph => `<p>${escapeText(paragraph).replace(/\n/g, '<br>')}</p>`).join('');
+}
+
+export function classroomResponseText(submission) {
+  const answer = submission?.shortAnswerSubmission?.answer;
+  return typeof answer === 'string' && answer.trim() ? answer : '';
+}
+
+function unsupportedAttachmentSummary(attachments) {
+  return attachments.map(attachment => ({ kind:attachment.kind, name:attachment.name || attachment.title || '', mimeType:attachment.mimeType || '', url:attachment.webViewLink || attachment.url || attachment.alternateLink || '' }));
+}
+
+export async function loadArticleOriginal(submission, token, dependencies={}) {
+  const responseText = classroomResponseText(submission);
+  if (responseText) return {selectedAttachment:null,originalContent:textToParagraphs(responseText),originalContentSource:'classroom_response',originalContentState:{status:'available',source:'classroom_response'}};
+  const attachments = classroomAttachments(submission);
   const selectedAttachment=await selectGoogleDocAttachment(attachments,token,dependencies.metadata||driveFileMetadata);
-  if(!selectedAttachment)return {selectedAttachment:null,originalContent:'',originalContentState:{status:'unsupported',message:'Google Docs 원문 첨부가 없습니다.'}};
-  try { const doc=await (dependencies.read||readDoc)(selectedAttachment.id,token); return {selectedAttachment,originalContent:`<p>${escapeText(doc.text).replace(/\n/g,'</p><p>')}</p>`,originalContentState:{status:'available'}}; }
-  catch(error){return {selectedAttachment,originalContent:'',originalContentState:{status:'error',code:error.code||'google_docs_error',message:`Google Docs 원문을 불러오지 못했습니다 (${error.status||'unknown'}).`}};}
+  if(!selectedAttachment)return {selectedAttachment:null,originalContent:'',originalContentSource:'unsupported_attachment',unsupportedAttachments:unsupportedAttachmentSummary(attachments),originalContentState:{status:'unsupported',source:'unsupported_attachment',message:attachments.length?'첨부된 파일 형식은 원문 미리보기를 지원하지 않습니다. Google Docs 또는 Classroom 짧은 답변을 사용해 주세요.':'제출된 텍스트 답변이나 첨부 원문이 없습니다.'}};
+  try { const doc=await (dependencies.read||readDoc)(selectedAttachment.id,token); return {selectedAttachment,originalContent:textToParagraphs(doc.text),originalContentSource:'google_doc',originalContentState:{status:'available',source:'google_doc'}}; }
+  catch(error){return {selectedAttachment,originalContent:'',originalContentSource:'google_doc',originalContentState:{status:'error',source:'google_doc',code:error.code||'google_docs_error',message:`Google Docs 원문을 불러오지 못했습니다 (${error.status||'unknown'}).`}};}
+}
+
+export function publicRoster(students) {
+  return (students || []).map(student => ({id:String(student.userId || ''),name:String(student.profile?.name?.fullName || '').trim() || '이름 확인 불가'})).filter(student => student.id);
+}
+
+async function configuredRoster(courseId, token) {
+  const now=Date.now(),cached=rosterCache.get(courseId);
+  if(cached&&cached.expiresAt>now)return cached.students;
+  const students=publicRoster(await classroom.students(courseId,token));
+  rosterCache.set(courseId,{students,expiresAt:now+ROSTER_CACHE_MS});
+  return students;
 }
 
 export function editForViewer(edit, role) {
@@ -113,14 +143,14 @@ async function routeEditorial(request, env, pathname) {
   return env.ASSETS.fetch(request);
 }
 
-async function collectArticles(issue, token, viewer) {
+async function collectArticles(issue, token, viewer, includeSubmission = false) {
   const rows = [];
   for (const type of issue.articleTypes) {
     const data = await classroom.submissions(issue.classroomCourseId, type.courseWorkId, token);
     for (const submission of data.studentSubmissions || []) {
       if (viewer.role === 'student' && submission.userId !== viewer.studentId) continue;
       const attachments = classroomAttachments(submission);
-      rows.push({ id: submission.id, issueId: issue.id, courseId: issue.classroomCourseId, courseWorkId: type.courseWorkId, articleTypeId: type.id, studentId: submission.userId, state: submission.state, submittedAt: submission.updateTime || submission.creationTime, attachments });
+      rows.push({ id: submission.id, issueId: issue.id, courseId: issue.classroomCourseId, courseWorkId: type.courseWorkId, articleTypeId: type.id, studentId: submission.userId, state: submission.state, submittedAt: submission.updateTime || submission.creationTime, attachments, ...(includeSubmission?{submission}:{}) });
     }
   }
   return rows;
@@ -130,6 +160,7 @@ async function routeApi(request, env, pathname) {
   const viewer = await session(request, env);
   if (pathname === '/api/session' && request.method === 'GET') return ok({ authenticated: true, user: { id: viewer.sub, name: viewer.name, email: viewer.email, role: viewer.role, studentId: viewer.studentId } }, env);
   if (pathname === '/api/classroom/courses' && request.method === 'GET') { requireAdmin(viewer); return ok(configuredCourses(await classroom.courses(viewer.accessToken),env.NEWSPAPER_CLASSROOM_ID), env); }
+  if (pathname === '/api/classroom/students' && request.method === 'GET') { requireAdmin(viewer); return ok({students:await configuredRoster(env.NEWSPAPER_CLASSROOM_ID,viewer.accessToken)},env); }
   const work = pathname.match(/^\/api\/classroom\/([^/]+)\/coursework$/);
   if (work && request.method === 'GET') { requireAdmin(viewer); if (work[1] !== env.NEWSPAPER_CLASSROOM_ID) throw Object.assign(new Error('Course is outside the configured newspaper Classroom.'), { status: 403, code: 'course_forbidden' }); return ok(await classroom.courseWork(work[1], viewer.accessToken), env); }
   const repo = repository(env);
@@ -139,7 +170,7 @@ async function routeApi(request, env, pathname) {
   if(issueActivation&&request.method==='PATCH'){requireAdmin(viewer);return ok(await repo.setActiveIssue(issueActivation[1]),env);}
   if (pathname === '/api/articles' && request.method === 'GET') { const issueId=new URL(request.url).searchParams.get('issueId'); const issue=issueId&&await repo.getIssue(issueId); if(!issue) throw Object.assign(new Error('A valid issueId is required.'),{status:400,code:'issue_required'}); const articles=await collectArticles(issue,viewer.accessToken,viewer); const edits=await repo.listEdits(issue.id,viewer.role==='student'?viewer.studentId:null); return ok(articles.map(a=>({...a,edit:editForViewer(edits.find(e=>e.submission_id===a.id)||null,viewer.role)})),env); }
   const article = pathname.match(/^\/api\/articles\/([^/]+)$/);
-  if(article && request.method==='GET'){const issueId=new URL(request.url).searchParams.get('issueId'),issue=issueId&&await repo.getIssue(issueId);if(!issue)throw Object.assign(new Error('A valid issueId is required.'),{status:400,code:'issue_required'});const found=(await collectArticles(issue,viewer.accessToken,viewer)).find(x=>x.id===article[1]);if(!found)throw Object.assign(new Error('Article submission not found.'),{status:404,code:'article_not_found'});const original=await loadArticleOriginal(found.attachments,viewer.accessToken);return ok({...found,...original,edit:editForViewer(await repo.getEdit(found.id),viewer.role)},env);}
+  if(article && request.method==='GET'){const issueId=new URL(request.url).searchParams.get('issueId'),issue=issueId&&await repo.getIssue(issueId);if(!issue)throw Object.assign(new Error('A valid issueId is required.'),{status:400,code:'issue_required'});const found=(await collectArticles(issue,viewer.accessToken,viewer,true)).find(x=>x.id===article[1]);if(!found)throw Object.assign(new Error('Article submission not found.'),{status:404,code:'article_not_found'});const {submission,...articleData}=found;const original=await loadArticleOriginal(submission,viewer.accessToken);return ok({...articleData,...original,edit:editForViewer(await repo.getEdit(found.id),viewer.role)},env);}
   const edit = pathname.match(/^\/api\/articles\/([^/]+)\/edit$/);
   if(edit && request.method==='PATCH'){requireAdmin(viewer);const input=await request.json(),issue=await repo.getIssue(input.issueId);if(!issue)throw Object.assign(new Error('Issue not found.'),{status:404,code:'issue_not_found'});const found=(await collectArticles(issue,viewer.accessToken,viewer)).find(x=>x.id===edit[1]);if(!found)throw Object.assign(new Error('Article submission not found.'),{status:404,code:'article_not_found'});return ok(await repo.saveEdit(found.id,{...found,studentGoogleId:found.studentId,editedHtml:sanitizeHtml(input.editedHtml),editorNote:String(input.editorNote||'').slice(0,5000),noteVisibility:input.noteVisibility==='student'?'student':'internal',status:input.status},viewer.sub),env);}
   if(pathname==='/api/photos'&&request.method==='GET'){const issueId=new URL(request.url).searchParams.get('issueId');if(!issueId)throw Object.assign(new Error('issueId is required.'),{status:400,code:'issue_required'});return ok(await repo.listPhotos(issueId,viewer.role==='student'?viewer.studentId:null),env);}
