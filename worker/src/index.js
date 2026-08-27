@@ -1,5 +1,5 @@
 import { clearCookie, cookie, randomToken, requireTrustedOrigin, sanitizeHtml, seal, setCookie, STATE_COOKIE, SESSION_COOKIE, unseal } from './security.js';
-import { classroom, exchangeCode, readDoc, resolveMembership, uploadToDrive, userInfo } from './google.js';
+import { classroom, driveFileMetadata, exchangeCode, readDoc, resolveMembership, uploadToDrive, userInfo } from './google.js';
 import { repository } from './repository.js';
 
 const SESSION_SECONDS = 45 * 60;
@@ -39,6 +39,35 @@ async function session(request, env, verifyMembership = true) {
 
 const requireAdmin = value => { if (value.role !== 'admin') throw Object.assign(new Error('Teacher access required.'), { status: 403, code: 'admin_required' }); };
 const escapeText = value => String(value || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const GOOGLE_DOC_MIME = 'application/vnd.google-apps.document';
+
+export function classroomAttachments(submission) {
+  return (submission.assignmentSubmission?.attachments || []).map(attachment => {
+    if (attachment.driveFile) return { ...attachment.driveFile, kind:'driveFile' };
+    if (attachment.link) return { ...attachment.link, kind:'link' };
+    if (attachment.youTubeVideo) return { ...attachment.youTubeVideo, kind:'youTubeVideo' };
+    if (attachment.form) return { ...attachment.form, kind:'form' };
+    return { kind:'unsupported' };
+  });
+}
+
+export async function selectGoogleDocAttachment(attachments, token, metadata=driveFileMetadata) {
+  for (const attachment of attachments) {
+    if (attachment.kind!=='driveFile' || !attachment.id) continue;
+    if (attachment.mimeType===GOOGLE_DOC_MIME) return attachment;
+    if (attachment.mimeType && attachment.mimeType!==GOOGLE_DOC_MIME) continue;
+    try { const file=await metadata(attachment.id,token); Object.assign(attachment,{mimeType:file.mimeType,name:file.name,webViewLink:file.webViewLink}); if(file.mimeType===GOOGLE_DOC_MIME)return attachment; }
+    catch (error) { attachment.metadataError=error.message; }
+  }
+  return null;
+}
+
+export async function loadArticleOriginal(attachments, token, dependencies={}) {
+  const selectedAttachment=await selectGoogleDocAttachment(attachments,token,dependencies.metadata||driveFileMetadata);
+  if(!selectedAttachment)return {selectedAttachment:null,originalContent:'',originalContentState:{status:'unsupported',message:'Google Docs 원문 첨부가 없습니다.'}};
+  try { const doc=await (dependencies.read||readDoc)(selectedAttachment.id,token); return {selectedAttachment,originalContent:`<p>${escapeText(doc.text).replace(/\n/g,'</p><p>')}</p>`,originalContentState:{status:'available'}}; }
+  catch(error){return {selectedAttachment,originalContent:'',originalContentState:{status:'error',code:error.code||'google_docs_error',message:`Google Docs 원문을 불러오지 못했습니다 (${error.status||'unknown'}).`}};}
+}
 
 export function editForViewer(edit, role) {
   if (!edit || role !== 'student' || edit.note_visibility === 'student') return edit;
@@ -90,7 +119,7 @@ async function collectArticles(issue, token, viewer) {
     const data = await classroom.submissions(issue.classroomCourseId, type.courseWorkId, token);
     for (const submission of data.studentSubmissions || []) {
       if (viewer.role === 'student' && submission.userId !== viewer.studentId) continue;
-      const attachments = (submission.assignmentSubmission?.attachments || []).map(x => x.driveFile).filter(Boolean);
+      const attachments = classroomAttachments(submission);
       rows.push({ id: submission.id, issueId: issue.id, courseId: issue.classroomCourseId, courseWorkId: type.courseWorkId, articleTypeId: type.id, studentId: submission.userId, state: submission.state, submittedAt: submission.updateTime || submission.creationTime, attachments });
     }
   }
@@ -110,7 +139,7 @@ async function routeApi(request, env, pathname) {
   if(issueActivation&&request.method==='PATCH'){requireAdmin(viewer);return ok(await repo.setActiveIssue(issueActivation[1]),env);}
   if (pathname === '/api/articles' && request.method === 'GET') { const issueId=new URL(request.url).searchParams.get('issueId'); const issue=issueId&&await repo.getIssue(issueId); if(!issue) throw Object.assign(new Error('A valid issueId is required.'),{status:400,code:'issue_required'}); const articles=await collectArticles(issue,viewer.accessToken,viewer); const edits=await repo.listEdits(issue.id,viewer.role==='student'?viewer.studentId:null); return ok(articles.map(a=>({...a,edit:editForViewer(edits.find(e=>e.submission_id===a.id)||null,viewer.role)})),env); }
   const article = pathname.match(/^\/api\/articles\/([^/]+)$/);
-  if(article && request.method==='GET'){const issueId=new URL(request.url).searchParams.get('issueId'),issue=issueId&&await repo.getIssue(issueId);if(!issue)throw Object.assign(new Error('A valid issueId is required.'),{status:400,code:'issue_required'});const found=(await collectArticles(issue,viewer.accessToken,viewer)).find(x=>x.id===article[1]);if(!found)throw Object.assign(new Error('Article submission not found.'),{status:404,code:'article_not_found'});const doc=found.attachments[0]?.id?await readDoc(found.attachments[0].id,viewer.accessToken):null;return ok({...found,originalContent:doc?`<p>${escapeText(doc.text).replace(/\n/g,'</p><p>')}</p>`:'',edit:editForViewer(await repo.getEdit(found.id),viewer.role)},env);}
+  if(article && request.method==='GET'){const issueId=new URL(request.url).searchParams.get('issueId'),issue=issueId&&await repo.getIssue(issueId);if(!issue)throw Object.assign(new Error('A valid issueId is required.'),{status:400,code:'issue_required'});const found=(await collectArticles(issue,viewer.accessToken,viewer)).find(x=>x.id===article[1]);if(!found)throw Object.assign(new Error('Article submission not found.'),{status:404,code:'article_not_found'});const original=await loadArticleOriginal(found.attachments,viewer.accessToken);return ok({...found,...original,edit:editForViewer(await repo.getEdit(found.id),viewer.role)},env);}
   const edit = pathname.match(/^\/api\/articles\/([^/]+)\/edit$/);
   if(edit && request.method==='PATCH'){requireAdmin(viewer);const input=await request.json(),issue=await repo.getIssue(input.issueId);if(!issue)throw Object.assign(new Error('Issue not found.'),{status:404,code:'issue_not_found'});const found=(await collectArticles(issue,viewer.accessToken,viewer)).find(x=>x.id===edit[1]);if(!found)throw Object.assign(new Error('Article submission not found.'),{status:404,code:'article_not_found'});return ok(await repo.saveEdit(found.id,{...found,studentGoogleId:found.studentId,editedHtml:sanitizeHtml(input.editedHtml),editorNote:String(input.editorNote||'').slice(0,5000),noteVisibility:input.noteVisibility==='student'?'student':'internal',status:input.status},viewer.sub),env);}
   if(pathname==='/api/photos'&&request.method==='GET'){const issueId=new URL(request.url).searchParams.get('issueId');if(!issueId)throw Object.assign(new Error('issueId is required.'),{status:400,code:'issue_required'});return ok(await repo.listPhotos(issueId,viewer.role==='student'?viewer.studentId:null),env);}

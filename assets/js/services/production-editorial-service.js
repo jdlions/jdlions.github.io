@@ -24,15 +24,25 @@ export function normalizePhoto(row) {
 }
 
 export class ProductionEditorialService {
-  constructor(state, session) { this.state=state; this.session=session; }
-  static async create(session) {
-    if(!session)return new ProductionEditorialService({issues:[],articles:[],photos:[],courses:[],courseWork:[],students:[],publications:[]},null);
-    const issues=await api('/api/issues'), active=issues.find(x=>x.status==='active');
+  constructor(state, session, request=api) { this.state=state; this.session=session; this.request=request; this.detailRequests=new Map(); }
+  static empty(session, request=api) { return new ProductionEditorialService({issues:[],articles:[],photos:[],courses:[],courseWork:[],students:[],publications:[]},session,request); }
+  static async create(session, request=api) { const service=ProductionEditorialService.empty(session,request); await service.load(); return service; }
+  async load() {
+    if(!this.session)return this;
+    const issues=await this.request('/api/issues'), active=issues.find(x=>x.status==='active');
     let articles=[],photos=[],courses=[],courseWork=[];
-    if(active){articles=await api(`/api/articles?issueId=${encodeURIComponent(active.id)}`);articles=await Promise.all(articles.map(a=>api(`/api/articles/${encodeURIComponent(a.id)}?issueId=${encodeURIComponent(active.id)}`)));photos=(await api(`/api/photos?issueId=${encodeURIComponent(active.id)}`)).map(normalizePhoto);}
-    if(session?.role==='admin'){const result=await api('/api/classroom/courses');courses=result.courses||[];for(const course of courses){const result=await api(`/api/classroom/${encodeURIComponent(course.id)}/coursework`);courseWork.push(...(result.courseWork||[]).map(x=>({...x,courseId:course.id})));}}
+    if(active){[articles,photos]=await Promise.all([this.request(`/api/articles?issueId=${encodeURIComponent(active.id)}`),this.request(`/api/photos?issueId=${encodeURIComponent(active.id)}`)]);photos=photos.map(normalizePhoto);}
+    if(this.session.role==='admin'){const result=await this.request('/api/classroom/courses');courses=selectConfiguredCourses(result.courses||[],active?.classroomCourseId);const course=courses[0];if(course){const result=await this.request(`/api/classroom/${encodeURIComponent(course.id)}/coursework`);courseWork=(result.courseWork||[]).map(x=>({...x,courseId:course.id}));}}
     const students=[...new Set(articles.map(x=>x.studentId))].map(id=>({id,name:`Classroom user ${id.slice(-6)}`}));
-    return new ProductionEditorialService({issues,articles:articles.map(x=>({...x,title:x.attachments?.[0]?.title||'Google Docs submission',originalContent:x.originalContent,editedContent:x.edit?.edited_html||'',editorNote:x.edit?.editor_note||'',noteVisibility:x.edit?.note_visibility||'internal',status:x.edit?.status||'unreviewed'})),photos,courses,courseWork,students,publications:[]},session);
+    this.state={issues,articles:articles.map(x=>this.normalizeArticle(x)),photos,courses,courseWork,students,publications:[]};
+    return this;
+  }
+  normalizeArticle(x){return {...x,title:x.attachments?.find(a=>a.title)?.title||'Article submission',originalContent:x.originalContent||'',editedContent:x.edit?.edited_html||'',editorNote:x.edit?.editor_note||'',noteVisibility:x.edit?.note_visibility||'internal',status:x.edit?.status||'unreviewed'};}
+  async getArticleDetail(id){
+    const row=this.state.articles.find(x=>x.id===id);if(!row)throw new Error('Article submission not found.');
+    if(row.detailLoaded)return structuredClone(row);
+    if(!this.detailRequests.has(id)){Object.assign(row,{detailLoading:true,detailError:null});this.detailRequests.set(id,this.request(`/api/articles/${encodeURIComponent(id)}?issueId=${encodeURIComponent(row.issueId)}`).then(detail=>{Object.assign(row,this.normalizeArticle(detail),{detailLoaded:true,detailLoading:false,detailError:null});return row;}).catch(error=>{Object.assign(row,{detailLoading:false,detailError:error.message||'Article detail could not be loaded.'});throw error;}).finally(()=>this.detailRequests.delete(id)));}
+    return structuredClone(await this.detailRequests.get(id));
   }
   getState(){return structuredClone(this.state);}
   getActiveIssue(){return structuredClone(this.state.issues.find(x=>x.status==='active')||null);}
