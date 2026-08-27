@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Admin long submission list fixture</title>
+  <link rel="stylesheet" href="../../../assets/css/editorial.css">
+</head>
+<body>
+  <main class="app-main" style="margin-left:0">
+    <div class="page">
+      <header class="page-head"><div><p class="eyebrow">PrideDesk · 관리자</p><h1>기사 관리</h1></div></header>
+      <div class="filter-bar"><select aria-label="Issue"><option>2026 Winter</option></select><select aria-label="Article type"><option>All article types</option></select><select aria-label="Student"><option>All students</option></select><select aria-label="Review status"><option>All statuses</option></select></div>
+      <div class="management-layout">
+        <aside class="panel submission-list" tabindex="0" aria-label="기사 제출 목록" data-fixture-list></aside>
+        <section class="panel article-detail"><h2>긴 목록 스크롤 fixture</h2><p>선택한 기사의 상세 영역입니다.</p></section>
+      </div>
+    </div>
+  </main>
+  <script>
+    const list=document.querySelector('[data-fixture-list]');
+    list.innerHTML=Array.from({length:60},(_,index)=>`<button class="submission-item"><strong>학생 ${String(index+1).padStart(2,'0')}</strong><span>School Article · 2026.08.28</span></button>`).join('');
+  </script>
+</body>
+</html>
