@@ -32,14 +32,12 @@ export class ProductionEditorialService {
   static async create(session, request=api) { const service=ProductionEditorialService.empty(session,request); await service.load(); return service; }
   async load() {
     if(!this.session)return this;
-    const issues=await this.request('/api/issues'), active=issues.find(x=>x.status==='active');
-    let articles=[],photos=[],students=[];
-    articles=(await this.request('/api/native/articles')).map(x=>({...x,native:true}));
-    const assignmentData=await this.request('/api/assignments');
-    if(active){photos=(await this.request(`/api/photos?issueId=${encodeURIComponent(active.id)}`)).map(normalizePhoto);}
+    let students=[];
+    const [nativeArticles,assignmentData,nativePhotos]=await Promise.all([this.request('/api/native/articles'),this.request('/api/assignments'),this.request('/api/photos')]);
+    const articles=nativeArticles.map(x=>({...x,native:true})),photos=nativePhotos.map(normalizePhoto);
     if(this.session.role==='admin'){const rosterResult=await this.request('/api/classroom/students');students=rosterResult.students||[];}
     else if(this.session.studentId){students=[{id:this.session.studentId,name:this.session.name||'이름 확인 불가'}];}
-    this.state={issues,articles:articles.map(x=>this.normalizeArticle(x)),photos,students,campaigns:assignmentData.campaigns||[],assignments:assignmentData.assignments||[],publications:[]};
+    this.state={issues:[],articles:articles.map(x=>this.normalizeArticle(x)),photos,students,campaigns:assignmentData.campaigns||[],assignments:assignmentData.assignments||[],publications:[]};
     return this;
   }
   normalizeArticle(x){return {...x,title:x.titleKo||x.titleEn||x.attachments?.find(a=>a.title)?.title||'제목 없는 기사',articleTypeId:x.articleType||x.articleTypeId,originalContent:x.draftHtml||x.originalContent||'',editedContent:x.editorDraftHtml||x.edit?.edited_html||'',editorNote:x.studentFeedback||x.edit?.editor_note||'',status:x.status||x.edit?.status||'draft',native:Boolean(x.native)};}
@@ -57,8 +55,6 @@ export class ProductionEditorialService {
   listStudents(){return structuredClone(this.state.students);}
   listArticles(filters={}){return structuredClone(this.state.articles.filter(x=>Object.entries(filters).every(([k,v])=>!v||x[k]===v)));}
   listPhotos(filters={}){return structuredClone(this.state.photos.filter(x=>Object.entries(filters).every(([k,v])=>!v||x[k]===v)));}
-  async createIssue(input){const pending={...input,id:`pending-${Date.now()}`,status:input.status||'draft',createdAt:new Date().toISOString()};this.state.issues.push(pending);const issue=await api('/api/issues',{method:'POST',body:JSON.stringify(input)});Object.assign(pending,issue);return pending;}
-  async saveArticleEdit(id,editedHtml,editorNote,noteVisibility='internal',status){const row=this.state.articles.find(x=>x.id===id);Object.assign(row,{editedContent:editedHtml,editorNote,noteVisibility,status:status||row.status});const saved=await api(`/api/articles/${encodeURIComponent(id)}/edit`,{method:'PATCH',body:JSON.stringify({issueId:row.issueId,editedHtml,editorNote,noteVisibility,status:row.status})});Object.assign(row,{editedContent:saved.edited_html,editorNote:saved.editor_note,noteVisibility:saved.note_visibility,status:saved.status});return row;}
   async createNativeArticle(input){const saved=this.normalizeArticle(await this.request('/api/native/articles',{method:'POST',body:JSON.stringify(input)}));this.state.articles.unshift(saved);return structuredClone(saved);}
   async createAssignment(input){const campaign=await this.request('/api/assignments',{method:'POST',body:JSON.stringify(input)});this.state.campaigns.unshift(campaign);return structuredClone(campaign);}
   async updateAssignment(id,input){const campaign=await this.request(`/api/assignments/${encodeURIComponent(id)}`,{method:'PATCH',body:JSON.stringify(input)});Object.assign(this.state.campaigns.find(x=>x.id===id),campaign);return campaign;}
@@ -70,10 +66,8 @@ export class ProductionEditorialService {
   async importNativeArticle(id,file){const body=new FormData();body.append('file',file);const saved=this.normalizeArticle(await this.request(`/api/native/articles/${encodeURIComponent(id)}/import`,{method:'POST',body}));Object.assign(this.state.articles.find(x=>x.id===id),saved);return saved;}
   async saveNativeEditor(id,input){const saved=this.normalizeArticle(await this.request(`/api/native/articles/${encodeURIComponent(id)}/editor`,{method:'PATCH',body:JSON.stringify(input)}));Object.assign(this.state.articles.find(x=>x.id===id),saved);return saved;}
   async setNativeStatus(id,status){const saved=this.normalizeArticle(await this.request(`/api/native/articles/${encodeURIComponent(id)}/status`,{method:'PATCH',body:JSON.stringify({status})}));Object.assign(this.state.articles.find(x=>x.id===id),saved);return saved;}
-  async updateArticleStatus(id,status){const row=this.state.articles.find(x=>x.id===id);return this.saveArticleEdit(id,row.editedContent,row.editorNote,row.noteVisibility,status);}
   async submitPhotos(input,files){const created=[];for(const file of files){const body=new FormData();Object.entries(input).forEach(([k,v])=>body.append(k,v));body.append('copyright','true');body.append('file',file);created.push(normalizePhoto(await this.request('/api/photos/upload',{method:'POST',body})));}this.state.photos.unshift(...created);return created;}
   reset(){throw new Error('Production data cannot be reset from the browser.');}
-  async setActiveIssue(id){this.state.issues.forEach(x=>x.status=x.id===id?'active':x.status==='active'?'draft':x.status);return api(`/api/issues/${encodeURIComponent(id)}/activate`,{method:'PATCH'});}
   async updatePhotoStatus(id,status){const row=this.state.photos.find(x=>x.id===id);if(row)row.status=status;const saved=normalizePhoto(await api(`/api/photos/${encodeURIComponent(id)}/status`,{method:'PATCH',body:JSON.stringify({status})}));if(row)Object.assign(row,saved);return saved;}
   publishIssue(){throw new Error('Publication remains a separately governed workflow.');}
 }

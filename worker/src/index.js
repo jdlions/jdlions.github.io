@@ -4,6 +4,8 @@ import { repository } from './repository.js';
 import { DOCX_MIME, MAX_DOCX_BYTES, parseDocx } from './docx.js';
 
 const SESSION_SECONDS = 45 * 60;
+const MEMBERSHIP_CACHE_MS = 5 * 60 * 1000;
+const membershipCache = new Map();
 const allowedPhotoTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
 export function validateStudentPhoto(file, articleSubmissionId, articles) {
   if (!articles.some(article => article.id === articleSubmissionId)) throw Object.assign(new Error('Select one of your own article submissions.'), { status: 403, code: 'article_forbidden' });
@@ -11,13 +13,8 @@ export function validateStudentPhoto(file, articleSubmissionId, articles) {
 }
 const scopes = [
   'openid', 'email', 'profile',
-  'https://www.googleapis.com/auth/classroom.courses.readonly',
-  'https://www.googleapis.com/auth/classroom.coursework.me.readonly',
-  'https://www.googleapis.com/auth/classroom.coursework.students.readonly',
   'https://www.googleapis.com/auth/classroom.rosters.readonly',
-  'https://www.googleapis.com/auth/drive.readonly',
-  'https://www.googleapis.com/auth/drive.file',
-  'https://www.googleapis.com/auth/documents.readonly'
+  'https://www.googleapis.com/auth/drive.file'
 ];
 
 function cors() { return {}; }
@@ -36,7 +33,9 @@ async function session(request, env, verifyMembership = true) {
   const value = sealed && await unseal(sealed, env.SESSION_SECRET);
   if (!value || value.exp <= Date.now() || value.courseId !== env.NEWSPAPER_CLASSROOM_ID) throw Object.assign(new Error('Authentication required.'), { status: 401, code: 'authentication_required' });
   if (verifyMembership) {
-    const membership = await resolveMembership(env.NEWSPAPER_CLASSROOM_ID, value.accessToken);
+    const key=`${value.courseId}:${value.sub}`,cached=membershipCache.get(key);
+    const membership=cached?.expiresAt>Date.now()?cached.value:await resolveMembership(env.NEWSPAPER_CLASSROOM_ID,value.accessToken);
+    if(!cached||cached.expiresAt<=Date.now())membershipCache.set(key,{value:membership,expiresAt:Date.now()+MEMBERSHIP_CACHE_MS});
     value.role = membership.role; value.studentId = membership.studentId; value.classroomUserId = membership.classroomUserId;
   }
   return value;
@@ -186,6 +185,7 @@ async function callback(request, env) {
   const code = url.searchParams.get('code'); if (!code) throw Object.assign(new Error('OAuth authorization code is missing.'), { status: 400, code: 'oauth_code_missing' });
   const tokens = await exchangeCode(code, env, saved.verifier);
   const [identity, membership] = await Promise.all([userInfo(tokens.access_token), resolveMembership(env.NEWSPAPER_CLASSROOM_ID, tokens.access_token)]);
+  membershipCache.set(`${env.NEWSPAPER_CLASSROOM_ID}:${identity.sub}`,{value:membership,expiresAt:Date.now()+MEMBERSHIP_CACHE_MS});
   const expires = Math.min(Date.now() + SESSION_SECONDS * 1000, Date.now() + Number(tokens.expires_in || SESSION_SECONDS) * 1000);
   const value = await seal({ sub: identity.sub, name: identity.name, email: identity.email, role: membership.role, studentId: membership.studentId, classroomUserId: membership.classroomUserId, courseId: env.NEWSPAPER_CLASSROOM_ID, accessToken: tokens.access_token, exp: expires }, env.SESSION_SECRET);
   return new Response(null, { status: 302, headers: [['Location', callbackRedirect(url, membership.role)], ['Set-Cookie', setCookie(SESSION_COOKIE, value, SESSION_SECONDS)], ['Set-Cookie', clearCookie(STATE_COOKIE)], ['Cache-Control','no-store']] });
@@ -232,11 +232,11 @@ export function photoForClient(row) {
 export async function authorizePhotoViewer(repo, photoId, viewer, configuredCourseId, loadArticles = collectArticles) {
   const photo = await repo.getPhoto(photoId);
   if (!photo) throw Object.assign(new Error('Photo not found.'), { status: 404, code: 'photo_not_found' });
-  const issue = await repo.getIssue(photo.issue_id);
-  if (!issue || issue.classroomCourseId !== configuredCourseId) throw Object.assign(new Error('Photo not found.'), { status: 404, code: 'photo_not_found' });
   if (viewer.role === 'admin') return photo;
   if (viewer.role !== 'student' || photo.student_google_id !== viewer.studentId) throw Object.assign(new Error('Photo not found.'), { status: 404, code: 'photo_not_found' });
   if(photo.article_id){const native=await repo.getNativeArticle(photo.article_id);if(native?.studentId===viewer.studentId)return photo;throw Object.assign(new Error('Photo not found.'),{status:404,code:'photo_not_found'});}
+  const issue = await repo.getIssue(photo.issue_id);
+  if (!issue || issue.classroomCourseId !== configuredCourseId) throw Object.assign(new Error('Photo not found.'), { status: 404, code:'photo_not_found' });
   const owned = await loadArticles(issue, viewer.accessToken, viewer);
   if (!owned.some(article => article.id === photo.article_submission_id && article.studentId === viewer.studentId)) throw Object.assign(new Error('Photo not found.'), { status: 404, code: 'photo_not_found' });
   return photo;
@@ -257,10 +257,7 @@ export async function photoContentResponse(photo, token, stream = streamDriveIma
 async function routeApi(request, env, pathname) {
   const viewer = await session(request, env);
   if (pathname === '/api/session' && request.method === 'GET') return ok({ authenticated: true, user: { id: viewer.sub, name: viewer.name, email: viewer.email, role: viewer.role, studentId: viewer.studentId } }, env);
-  if (pathname === '/api/classroom/courses' && request.method === 'GET') { requireAdmin(viewer); return ok(configuredCourses(await classroom.courses(viewer.accessToken),env.NEWSPAPER_CLASSROOM_ID), env); }
   if (pathname === '/api/classroom/students' && request.method === 'GET') { requireAdmin(viewer); return ok({students:await configuredRoster(env.NEWSPAPER_CLASSROOM_ID,viewer.accessToken)},env); }
-  const work = pathname.match(/^\/api\/classroom\/([^/]+)\/coursework$/);
-  if (work && request.method === 'GET') { requireAdmin(viewer); if (work[1] !== env.NEWSPAPER_CLASSROOM_ID) throw Object.assign(new Error('Course is outside the configured newspaper Classroom.'), { status: 403, code: 'course_forbidden' }); return ok(await classroom.courseWork(work[1], viewer.accessToken), env); }
   const repo = repository(env);
   if(pathname==='/api/assignments'&&request.method==='GET')return ok({campaigns:await repo.listCampaigns(viewer.role==='student'?viewer.studentId:null),assignments:await repo.listAssignments(viewer.role==='student'?viewer.studentId:null)},env);
   if(pathname==='/api/assignments'&&request.method==='POST'){requireAdmin(viewer);return ok(await repo.createCampaign(validateCampaign(await request.json()),viewer.sub),env,201);}
@@ -283,16 +280,7 @@ async function routeApi(request, env, pathname) {
   if(nativeEditor&&request.method==='PATCH'){requireAdmin(viewer);const found=await repo.getNativeArticle(nativeEditor[1]);if(!found)throw Object.assign(new Error('Article not found.'),{status:404,code:'article_not_found'});const input=await request.json();return ok(await repo.saveEditorDraft(found,{titleKo:cleanTitle(input.titleKo),titleEn:cleanTitle(input.titleEn),contentHtml:sanitizeHtml(input.contentHtml||'').slice(0,300000),studentFeedback:String(input.studentFeedback||'').slice(0,10000),internalNote:String(input.internalNote||'').slice(0,10000),checkpoint:Boolean(input.checkpoint)},viewer.sub),env);}
   const nativeStatus=pathname.match(/^\/api\/native\/articles\/([^/]+)\/status$/);
   if(nativeStatus&&request.method==='PATCH'){requireAdmin(viewer);const found=await repo.getNativeArticle(nativeStatus[1]),input=await request.json();if(!found)throw Object.assign(new Error('Article not found.'),{status:404,code:'article_not_found'});if(!nativeStatuses.has(input.status)||input.status==='draft')throw Object.assign(new Error('Invalid article status.'),{status:400,code:'invalid_status'});return ok(await repo.setNativeStatus(found,input.status,viewer.sub),env);}
-  if (pathname === '/api/issues' && request.method === 'GET') return ok(await repo.listIssues(), env);
-  if (pathname === '/api/issues' && request.method === 'POST') { requireAdmin(viewer); const input=await request.json(); if(input.classroomCourseId!==env.NEWSPAPER_CLASSROOM_ID || !Array.isArray(input.articleTypes) || input.articleTypes.some(x=>!x.courseWorkId)) throw Object.assign(new Error('Explicit configured courseId and courseWorkId values are required.'),{status:400,code:'invalid_issue_mapping'}); return ok(await repo.createIssue(input),env,201); }
-  const issueActivation=pathname.match(/^\/api\/issues\/([^/]+)\/activate$/);
-  if(issueActivation&&request.method==='PATCH'){requireAdmin(viewer);return ok(await repo.setActiveIssue(issueActivation[1]),env);}
-  if (pathname === '/api/articles' && request.method === 'GET') { const issueId=new URL(request.url).searchParams.get('issueId'); const issue=issueId&&await repo.getIssue(issueId); if(!issue) throw Object.assign(new Error('A valid issueId is required.'),{status:400,code:'issue_required'}); const articles=await collectArticles(issue,viewer.accessToken,viewer); const edits=await repo.listEdits(issue.id,viewer.role==='student'?viewer.studentId:null); return ok(articles.map(a=>({...a,edit:editForViewer(edits.find(e=>e.submission_id===a.id)||null,viewer.role)})),env); }
-  const article = pathname.match(/^\/api\/articles\/([^/]+)$/);
-  if(article && request.method==='GET'){const issueId=new URL(request.url).searchParams.get('issueId'),issue=issueId&&await repo.getIssue(issueId);if(!issue)throw Object.assign(new Error('A valid issueId is required.'),{status:400,code:'issue_required'});const found=(await collectArticles(issue,viewer.accessToken,viewer,true)).find(x=>x.id===article[1]);if(!found)throw Object.assign(new Error('Article submission not found.'),{status:404,code:'article_not_found'});const {submission,...articleData}=found;const original=await loadArticleOriginal(submission,viewer.accessToken);return ok({...articleData,...original,edit:editForViewer(await repo.getEdit(found.id),viewer.role)},env);}
-  const edit = pathname.match(/^\/api\/articles\/([^/]+)\/edit$/);
-  if(edit && request.method==='PATCH'){requireAdmin(viewer);const input=await request.json(),issue=await repo.getIssue(input.issueId);if(!issue)throw Object.assign(new Error('Issue not found.'),{status:404,code:'issue_not_found'});const found=(await collectArticles(issue,viewer.accessToken,viewer)).find(x=>x.id===edit[1]);if(!found)throw Object.assign(new Error('Article submission not found.'),{status:404,code:'article_not_found'});return ok(await repo.saveEdit(found.id,{...found,studentGoogleId:found.studentId,editedHtml:sanitizeHtml(input.editedHtml),editorNote:String(input.editorNote||'').slice(0,5000),noteVisibility:input.noteVisibility==='student'?'student':'internal',status:input.status},viewer.sub),env);}
-  if(pathname==='/api/photos'&&request.method==='GET'){const issueId=new URL(request.url).searchParams.get('issueId'),issue=issueId&&await repo.getIssue(issueId);if(!issue||issue.classroomCourseId!==env.NEWSPAPER_CLASSROOM_ID)throw Object.assign(new Error('A valid issueId is required.'),{status:400,code:'issue_required'});return ok((await repo.listPhotos(issueId,viewer.role==='student'?viewer.studentId:null)).map(photoForClient),env);}
+  if(pathname==='/api/photos'&&request.method==='GET')return ok((await repo.listPhotos(viewer.role==='student'?viewer.studentId:null)).map(photoForClient),env);
   if(pathname==='/api/photos/folder-status'&&request.method==='GET'){requireAdmin(viewer);const folder=await driveFolderPreflight(env.DRIVE_UPLOAD_FOLDER_ID,viewer.accessToken);return ok({accessible:true,canAddChildren:folder.canAddChildren,storage:folder.driveId?'shared_drive':'my_drive'},env);}
   const photoStatus=pathname.match(/^\/api\/photos\/([^/]+)\/status$/);
   if(photoStatus&&request.method==='PATCH'){requireAdmin(viewer);const input=await request.json();if(!['unreviewed','approved','hold','rejected'].includes(input.status))throw Object.assign(new Error('Invalid photo status.'),{status:400,code:'invalid_status'});return ok(await repo.updatePhotoStatus(photoStatus[1],input.status),env);}
@@ -300,7 +288,7 @@ async function routeApi(request, env, pathname) {
   if(photoContent&&request.method==='GET'){const photo=await authorizePhotoViewer(repo,photoContent[1],viewer,env.NEWSPAPER_CLASSROOM_ID);return photoContentResponse(photo,viewer.accessToken);}
   const photoOriginal=pathname.match(/^\/api\/photos\/([^/]+)\/original$/);
   if(photoOriginal&&request.method==='GET'){const photo=await authorizePhotoViewer(repo,photoOriginal[1],viewer,env.NEWSPAPER_CLASSROOM_ID);return new Response(null,{status:302,headers:{Location:`https://drive.google.com/open?id=${encodeURIComponent(photo.drive_file_id)}`,'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer'}});}
-  if(pathname==='/api/photos/upload'&&request.method==='POST'){if(viewer.role!=='student')throw Object.assign(new Error('Student access required.'),{status:403,code:'student_required'});const form=await request.formData(),file=form.get('file'),issueId=String(form.get('issueId')||''),articleSubmissionId=String(form.get('articleSubmissionId')||''),issue=await repo.getIssue(issueId);if(!issue||issue.classroomCourseId!==env.NEWSPAPER_CLASSROOM_ID)throw Object.assign(new Error('Issue not found.'),{status:404,code:'issue_not_found'});if(form.get('copyright')!=='true')throw Object.assign(new Error('Rights confirmation is required.'),{status:400,code:'rights_confirmation_required'});const native=await repo.getNativeArticle(articleSubmissionId),isNative=native?.studentId===viewer.studentId;const ownedArticles=isNative?[native]:await collectArticles(issue,viewer.accessToken,viewer);validateStudentPhoto(file,articleSubmissionId,ownedArticles);const drive=await uploadToDrive(file,env.DRIVE_UPLOAD_FOLDER_ID,viewer.accessToken);const photo={issueId,articleSubmissionId,articleId:isNative?articleSubmissionId:null,studentGoogleId:viewer.studentId,driveFileId:drive.id,filename:drive.name,mimeType:drive.mimeType,byteSize:Number(drive.size||file.size),caption:String(form.get('caption')||'').slice(0,1000),photographer:String(form.get('photographer')||'').slice(0,200),sourceType:String(form.get('sourceType')||'').slice(0,100),rightsConfirmed:true};return ok(photoForClient(await createPhotoAfterDrive(repo,photo,viewer.accessToken)),env,201);}
+  if(pathname==='/api/photos/upload'&&request.method==='POST'){requireStudent(viewer);const form=await request.formData(),file=form.get('file'),articleSubmissionId=String(form.get('articleSubmissionId')||''),native=await repo.getNativeArticle(articleSubmissionId);if(form.get('copyright')!=='true')throw Object.assign(new Error('Rights confirmation is required.'),{status:400,code:'rights_confirmation_required'});validateStudentPhoto(file,articleSubmissionId,native?.studentId===viewer.studentId?[native]:[]);const drive=await uploadToDrive(file,env.DRIVE_UPLOAD_FOLDER_ID,viewer.accessToken);const photo={issueId:native.issueId||'native',articleSubmissionId,articleId:articleSubmissionId,studentGoogleId:viewer.studentId,driveFileId:drive.id,filename:drive.name,mimeType:drive.mimeType,byteSize:Number(drive.size||file.size),caption:String(form.get('caption')||'').slice(0,1000),photographer:String(form.get('photographer')||'').slice(0,200),sourceType:String(form.get('sourceType')||'').slice(0,100),rightsConfirmed:true};return ok(photoForClient(await createPhotoAfterDrive(repo,photo,viewer.accessToken)),env,201);}
   throw Object.assign(new Error('API route not found.'), { status: 404, code: 'not_found' });
 }
 
