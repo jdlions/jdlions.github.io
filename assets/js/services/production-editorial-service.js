@@ -34,16 +34,19 @@ export class ProductionEditorialService {
     if(!this.session)return this;
     const issues=await this.request('/api/issues'), active=issues.find(x=>x.status==='active');
     let articles=[],photos=[],courses=[],courseWork=[],students=[];
-    if(active){[articles,photos]=await Promise.all([this.request(`/api/articles?issueId=${encodeURIComponent(active.id)}`),this.request(`/api/photos?issueId=${encodeURIComponent(active.id)}`)]);photos=photos.map(normalizePhoto);}
+    if(this.request===api)articles=(await this.request('/api/native/articles')).map(x=>({...x,native:true}));
+    else if(active)articles=await this.request(`/api/articles?issueId=${encodeURIComponent(active.id)}`);
+    if(active){photos=(await this.request(`/api/photos?issueId=${encodeURIComponent(active.id)}`)).map(normalizePhoto);}
     if(this.session.role==='admin'){const [courseResult,rosterResult]=await Promise.all([this.request('/api/classroom/courses'),this.request('/api/classroom/students')]);courses=selectConfiguredCourses(courseResult.courses||[],active?.classroomCourseId);students=rosterResult.students||[];const course=courses[0];if(course){const result=await this.request(`/api/classroom/${encodeURIComponent(course.id)}/coursework`);courseWork=(result.courseWork||[]).map(x=>({...x,courseId:course.id}));}}
     else if(this.session.studentId){students=[{id:this.session.studentId,name:this.session.name||'이름 확인 불가'}];}
     this.state={issues,articles:articles.map(x=>this.normalizeArticle(x)),photos,courses,courseWork,students,publications:[]};
     return this;
   }
-  normalizeArticle(x){return {...x,title:x.attachments?.find(a=>a.title)?.title||'Article submission',originalContent:x.originalContent||'',editedContent:x.edit?.edited_html||'',editorNote:x.edit?.editor_note||'',noteVisibility:x.edit?.note_visibility||'internal',status:x.edit?.status||'unreviewed'};}
+  normalizeArticle(x){return {...x,title:x.titleKo||x.titleEn||x.attachments?.find(a=>a.title)?.title||'제목 없는 기사',articleTypeId:x.articleType||x.articleTypeId,originalContent:x.draftHtml||x.originalContent||'',editedContent:x.editorDraftHtml||x.edit?.edited_html||'',editorNote:x.studentFeedback||x.edit?.editor_note||'',status:x.status||x.edit?.status||'draft',native:Boolean(x.native)};}
   async getArticleDetail(id){
     const row=this.state.articles.find(x=>x.id===id);if(!row)throw new Error('Article submission not found.');
     if(row.detailLoaded)return structuredClone(row);
+    if(row.native){const detail=await this.request(`/api/native/articles/${encodeURIComponent(id)}`);Object.assign(row,this.normalizeArticle(detail),{...detail,detailLoaded:true});return structuredClone(row);}
     if(!this.detailRequests.has(id)){Object.assign(row,{detailLoading:true,detailError:null});this.detailRequests.set(id,this.request(`/api/articles/${encodeURIComponent(id)}?issueId=${encodeURIComponent(row.issueId)}`).then(detail=>{Object.assign(row,this.normalizeArticle(detail),{detailLoaded:true,detailLoading:false,detailError:null});return row;}).catch(error=>{Object.assign(row,{detailLoading:false,detailError:error.message||'Article detail could not be loaded.'});throw error;}).finally(()=>this.detailRequests.delete(id)));}
     return structuredClone(await this.detailRequests.get(id));
   }
@@ -55,6 +58,12 @@ export class ProductionEditorialService {
   listPhotos(filters={}){return structuredClone(this.state.photos.filter(x=>Object.entries(filters).every(([k,v])=>!v||x[k]===v)));}
   async createIssue(input){const pending={...input,id:`pending-${Date.now()}`,status:input.status||'draft',createdAt:new Date().toISOString()};this.state.issues.push(pending);const issue=await api('/api/issues',{method:'POST',body:JSON.stringify(input)});Object.assign(pending,issue);return pending;}
   async saveArticleEdit(id,editedHtml,editorNote,noteVisibility='internal',status){const row=this.state.articles.find(x=>x.id===id);Object.assign(row,{editedContent:editedHtml,editorNote,noteVisibility,status:status||row.status});const saved=await api(`/api/articles/${encodeURIComponent(id)}/edit`,{method:'PATCH',body:JSON.stringify({issueId:row.issueId,editedHtml,editorNote,noteVisibility,status:row.status})});Object.assign(row,{editedContent:saved.edited_html,editorNote:saved.editor_note,noteVisibility:saved.note_visibility,status:saved.status});return row;}
+  async createNativeArticle(input){const saved=this.normalizeArticle(await this.request('/api/native/articles',{method:'POST',body:JSON.stringify(input)}));this.state.articles.unshift(saved);return structuredClone(saved);}
+  async saveNativeDraft(id,input){const saved=this.normalizeArticle(await this.request(`/api/native/articles/${encodeURIComponent(id)}`,{method:'PATCH',body:JSON.stringify(input)}));Object.assign(this.state.articles.find(x=>x.id===id),saved);return saved;}
+  async submitNativeArticle(id){const saved=this.normalizeArticle(await this.request(`/api/native/articles/${encodeURIComponent(id)}/submit`,{method:'POST'}));Object.assign(this.state.articles.find(x=>x.id===id),saved);return saved;}
+  async importNativeArticle(id,file){const body=new FormData();body.append('file',file);const saved=this.normalizeArticle(await this.request(`/api/native/articles/${encodeURIComponent(id)}/import`,{method:'POST',body}));Object.assign(this.state.articles.find(x=>x.id===id),saved);return saved;}
+  async saveNativeEditor(id,input){const saved=this.normalizeArticle(await this.request(`/api/native/articles/${encodeURIComponent(id)}/editor`,{method:'PATCH',body:JSON.stringify(input)}));Object.assign(this.state.articles.find(x=>x.id===id),saved);return saved;}
+  async setNativeStatus(id,status){const saved=this.normalizeArticle(await this.request(`/api/native/articles/${encodeURIComponent(id)}/status`,{method:'PATCH',body:JSON.stringify({status})}));Object.assign(this.state.articles.find(x=>x.id===id),saved);return saved;}
   async updateArticleStatus(id,status){const row=this.state.articles.find(x=>x.id===id);return this.saveArticleEdit(id,row.editedContent,row.editorNote,row.noteVisibility,status);}
   async submitPhotos(input,files){const created=[];for(const file of files){const body=new FormData();Object.entries(input).forEach(([k,v])=>body.append(k,v));body.append('copyright','true');body.append('file',file);created.push(normalizePhoto(await this.request('/api/photos/upload',{method:'POST',body})));}this.state.photos.unshift(...created);return created;}
   reset(){throw new Error('Production data cannot be reset from the browser.');}
