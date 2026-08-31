@@ -47,30 +47,31 @@ test('photo gallery uses authenticated lazy-loaded image URLs',async()=>{
 
 test('startup uses only lightweight lists and never fetches article detail', async () => {
   const calls=[];
-  const request=async path=>{calls.push(path);if(path==='/api/issues')return [{id:'issue-1',status:'active'}];if(path.startsWith('/api/articles?'))return [{id:'article-1',issueId:'issue-1',studentId:'student-1',attachments:[]}];if(path.startsWith('/api/photos?'))return [];throw new Error(`Unexpected request: ${path}`);};
+  const request=async path=>{calls.push(path);if(path==='/api/issues')return [{id:'issue-1',status:'active'}];if(path==='/api/native/articles')return [{id:'article-1',issueId:'issue-1',studentId:'student-1'}];if(path==='/api/assignments')return {campaigns:[],assignments:[]};if(path.startsWith('/api/photos?'))return [];throw new Error(`Unexpected request: ${path}`);};
   const service=await ProductionEditorialService.create({role:'student'},request);
   assert.equal(service.listArticles().length,1);
-  assert.equal(calls.filter(path=>/^\/api\/articles\//.test(path)).length,0);
+  assert.equal(calls.filter(path=>/^\/api\/native\/articles\/.+/.test(path)).length,0);
 });
 
 test('article detail is fetched once on selection and then cached', async () => {
   const calls=[];
-  const request=async path=>{calls.push(path);if(path==='/api/issues')return [{id:'issue-1',status:'active'}];if(path.startsWith('/api/articles?'))return [{id:'article-1',issueId:'issue-1',studentId:'student-1',attachments:[]}];if(path.startsWith('/api/photos?'))return [];if(path.startsWith('/api/articles/article-1?'))return {id:'article-1',issueId:'issue-1',studentId:'student-1',attachments:[],originalContent:'body',originalContentState:{status:'available'}};throw new Error(`Unexpected request: ${path}`);};
+  const request=async path=>{calls.push(path);if(path==='/api/issues')return [{id:'issue-1',status:'active'}];if(path==='/api/native/articles')return [{id:'article-1',issueId:'issue-1',studentId:'student-1',native:true}];if(path==='/api/assignments')return {campaigns:[],assignments:[]};if(path.startsWith('/api/photos?'))return [];if(path==='/api/native/articles/article-1')return {id:'article-1',issueId:'issue-1',studentId:'student-1',draftHtml:'body'};throw new Error(`Unexpected request: ${path}`);};
   const service=await ProductionEditorialService.create({role:'student'},request);
   await service.getArticleDetail('article-1');await service.getArticleDetail('article-1');
-  assert.equal(calls.filter(path=>path.startsWith('/api/articles/article-1?')).length,1);
+  assert.equal(calls.filter(path=>path==='/api/native/articles/article-1').length,1);
 });
 
-test('admin requests coursework only for the configured active newspaper Classroom', async () => {
+test('admin loads roster for targeting but never requests Classroom coursework', async () => {
   const calls=[];
-  const request=async path=>{calls.push(path);if(path==='/api/issues')return [{id:'issue-1',status:'active',classroomCourseId:'newspaper'}];if(path.startsWith('/api/articles?')||path.startsWith('/api/photos?'))return [];if(path==='/api/classroom/courses')return {courses:[{id:'other'},{id:'newspaper'}]};if(path==='/api/classroom/students')return {students:[{id:'student-1',name:'Kim Mina'}]};if(path==='/api/classroom/newspaper/coursework')return {courseWork:[]};throw new Error(`Unexpected request: ${path}`);};
+  const request=async path=>{calls.push(path);if(path==='/api/issues')return [{id:'issue-1',status:'active',classroomCourseId:'newspaper'}];if(path==='/api/native/articles')return [];if(path==='/api/assignments')return {campaigns:[],assignments:[]};if(path.startsWith('/api/photos?'))return [];if(path==='/api/classroom/students')return {students:[{id:'student-1',name:'Kim Mina'}]};throw new Error(`Unexpected request: ${path}`);};
   await ProductionEditorialService.create({role:'admin'},request);
-  assert.deepEqual(calls.filter(path=>path.includes('/coursework')),['/api/classroom/newspaper/coursework']);
+  assert.equal(calls.includes('/api/classroom/students'),true);
+  assert.deepEqual(calls.filter(path=>path.includes('/coursework')),[]);
 });
 
 test('student startup uses only the signed-in student name and never requests roster', async () => {
   const calls=[];
-  const request=async path=>{calls.push(path);if(path==='/api/issues')return [];throw new Error(`Unexpected request: ${path}`);};
+  const request=async path=>{calls.push(path);if(path==='/api/issues'||path==='/api/native/articles')return [];if(path==='/api/assignments')return {campaigns:[],assignments:[]};throw new Error(`Unexpected request: ${path}`);};
   const service=await ProductionEditorialService.create({role:'student',studentId:'student-1',name:'Kim Mina'},request);
   assert.deepEqual(service.getState().students,[{id:'student-1',name:'Kim Mina'}]);
   assert.equal(calls.includes('/api/classroom/students'),false);
