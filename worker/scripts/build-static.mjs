@@ -9,6 +9,7 @@ const outputRoot = resolve(workerRoot, '.static', 'editorial');
 const files = [
   'cleanlogo.png',
   'assets/css/editorial.css',
+  'assets/css/editorial-liquid-glass.css',
   'assets/js/config.js',
   'assets/js/admin/admin-app.js',
   'assets/js/admin/article-ui-state.js',
