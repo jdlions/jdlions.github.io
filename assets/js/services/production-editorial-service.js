@@ -1,9 +1,5 @@
 import { api } from './api-client.js';
 
-export function selectConfiguredCourses(courses = [], configuredCourseId) {
-  return configuredCourseId ? courses.filter(course => course.id === configuredCourseId) : [];
-}
-
 export function normalizePhoto(row) {
   if (!row) return row;
   const byteSize = row.byteSize ?? row.byte_size;
@@ -48,6 +44,7 @@ export class ProductionEditorialService {
     if(!this.detailRequests.has(id)){Object.assign(row,{detailLoading:true,detailError:null});this.detailRequests.set(id,this.request(`/api/articles/${encodeURIComponent(id)}?issueId=${encodeURIComponent(row.issueId)}`).then(detail=>{Object.assign(row,this.normalizeArticle(detail),{detailLoaded:true,detailLoading:false,detailError:null});return row;}).catch(error=>{Object.assign(row,{detailLoading:false,detailError:error.message||'Article detail could not be loaded.'});throw error;}).finally(()=>this.detailRequests.delete(id)));}
     return structuredClone(await this.detailRequests.get(id));
   }
+  async refreshArticleDetail(id){const row=this.state.articles.find(x=>x.id===id);if(!row)throw new Error('Article not found.');const detail=await this.request(`/api/native/articles/${encodeURIComponent(id)}`);Object.assign(row,this.normalizeArticle(detail),{...detail,detailLoaded:true});return structuredClone(row);}
   getState(){return structuredClone(this.state);}
   getActiveIssue(){return structuredClone(this.state.issues.find(x=>x.status==='active')||null);}
   listCampaigns(){return structuredClone(this.state.campaigns);}
@@ -62,12 +59,12 @@ export class ProductionEditorialService {
   async refreshAssignments(){const data=await this.request('/api/assignments');this.state.campaigns=data.campaigns||[];this.state.assignments=data.assignments||[];return data;}
   async openAssignmentArticle(instanceId){const saved=this.normalizeArticle(await this.request(`/api/assignment-instances/${encodeURIComponent(instanceId)}/article`,{method:'POST'}));const existing=this.state.articles.find(x=>x.id===saved.id);if(existing)Object.assign(existing,saved);else this.state.articles.unshift(saved);const instance=this.state.assignments.find(x=>x.id===instanceId);if(instance){instance.articleId=saved.id;instance.articleStatus=saved.status;}return structuredClone(saved);}
   async saveNativeDraft(id,input){const saved=this.normalizeArticle(await this.request(`/api/native/articles/${encodeURIComponent(id)}`,{method:'PATCH',body:JSON.stringify(input)}));Object.assign(this.state.articles.find(x=>x.id===id),saved);return saved;}
-  async submitNativeArticle(id){const saved=this.normalizeArticle(await this.request(`/api/native/articles/${encodeURIComponent(id)}/submit`,{method:'POST'}));Object.assign(this.state.articles.find(x=>x.id===id),saved);return saved;}
-  async importNativeArticle(id,file){const body=new FormData();body.append('file',file);const saved=this.normalizeArticle(await this.request(`/api/native/articles/${encodeURIComponent(id)}/import`,{method:'POST',body}));Object.assign(this.state.articles.find(x=>x.id===id),saved);return saved;}
+  async submitNativeArticle(id){await this.request(`/api/native/articles/${encodeURIComponent(id)}/submit`,{method:'POST'});return this.refreshArticleDetail(id);}
+  async importNativeArticle(id,file){const body=new FormData();body.append('file',file);await this.request(`/api/native/articles/${encodeURIComponent(id)}/import`,{method:'POST',body});return this.refreshArticleDetail(id);}
   async saveNativeEditor(id,input){const saved=this.normalizeArticle(await this.request(`/api/native/articles/${encodeURIComponent(id)}/editor`,{method:'PATCH',body:JSON.stringify(input)}));Object.assign(this.state.articles.find(x=>x.id===id),saved);return saved;}
-  async setNativeStatus(id,status){const saved=this.normalizeArticle(await this.request(`/api/native/articles/${encodeURIComponent(id)}/status`,{method:'PATCH',body:JSON.stringify({status})}));Object.assign(this.state.articles.find(x=>x.id===id),saved);return saved;}
+  async setNativeStatus(id,status){await this.request(`/api/native/articles/${encodeURIComponent(id)}/status`,{method:'PATCH',body:JSON.stringify({status})});return this.refreshArticleDetail(id);}
   async submitPhotos(input,files){const created=[];for(const file of files){const body=new FormData();Object.entries(input).forEach(([k,v])=>body.append(k,v));body.append('copyright','true');body.append('file',file);created.push(normalizePhoto(await this.request('/api/photos/upload',{method:'POST',body})));}this.state.photos.unshift(...created);return created;}
   reset(){throw new Error('Production data cannot be reset from the browser.');}
-  async updatePhotoStatus(id,status){const row=this.state.photos.find(x=>x.id===id);if(row)row.status=status;const saved=normalizePhoto(await api(`/api/photos/${encodeURIComponent(id)}/status`,{method:'PATCH',body:JSON.stringify({status})}));if(row)Object.assign(row,saved);return saved;}
+  async updatePhotoStatus(id,status){const saved=normalizePhoto(await this.request(`/api/photos/${encodeURIComponent(id)}/status`,{method:'PATCH',body:JSON.stringify({status})}));const row=this.state.photos.find(x=>x.id===id);if(row)Object.assign(row,saved);return saved;}
   publishIssue(){throw new Error('Publication remains a separately governed workflow.');}
 }

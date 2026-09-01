@@ -1,5 +1,5 @@
 import { clearCookie, cookie, randomToken, requireTrustedOrigin, sanitizeHtml, seal, setCookie, STATE_COOKIE, SESSION_COOKIE, unseal } from './security.js';
-import { classroom, deleteDriveFile, downloadDriveFile, driveFileMetadata, driveFolderPreflight, exchangeCode, readDoc, resolveMembership, streamDriveImage, uploadToDrive, userInfo } from './google.js';
+import { classroom, deleteDriveFile, driveFolderPreflight, exchangeCode, resolveMembership, streamDriveImage, uploadToDrive, userInfo } from './google.js';
 import { repository } from './repository.js';
 import { DOCX_MIME, MAX_DOCX_BYTES, parseDocx } from './docx.js';
 
@@ -62,87 +62,13 @@ export function validateCampaign(input){
 function ensureAssignmentWritable(instance){if(instance&&instance.campaign_status==='closed')throw Object.assign(new Error('This assignment is closed.'),{status:409,code:'assignment_closed'});}
 function nativeForViewer(article,viewer){if(viewer.role==='admin')return article;const {internalNote:_internal,...visible}=article;return visible;}
 const escapeText = value => String(value || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const GOOGLE_DOC_MIME = 'application/vnd.google-apps.document';
 const ROSTER_CACHE_MS = 5 * 60 * 1000;
 const rosterCache = new Map();
-
-export function classroomAttachments(submission) {
-  return (submission.assignmentSubmission?.attachments || []).map(attachment => {
-    if (attachment.driveFile) return { ...attachment.driveFile, kind:'driveFile' };
-    if (attachment.link) return { ...attachment.link, kind:'link' };
-    if (attachment.youTubeVideo) return { ...attachment.youTubeVideo, kind:'youTubeVideo' };
-    if (attachment.form) return { ...attachment.form, kind:'form' };
-    return { kind:'unsupported' };
-  });
-}
-
-export async function selectGoogleDocAttachment(attachments, token, metadata=driveFileMetadata) {
-  for (const attachment of attachments) {
-    if (attachment.kind!=='driveFile' || !attachment.id) continue;
-    if (attachment.mimeType===GOOGLE_DOC_MIME) return attachment;
-    if (attachment.mimeType && attachment.mimeType!==GOOGLE_DOC_MIME) continue;
-    try { const file=await metadata(attachment.id,token); Object.assign(attachment,{mimeType:file.mimeType,name:file.name,webViewLink:file.webViewLink}); if(file.mimeType===GOOGLE_DOC_MIME)return attachment; }
-    catch (error) { attachment.metadataError=error.message; }
-  }
-  return null;
-}
-
-function isDocx(attachment) {
-  return attachment.mimeType === DOCX_MIME || /\.docx$/i.test(attachment.name || attachment.title || '');
-}
-
-function docxScore(attachment) {
-  const name = String(attachment.name || attachment.title || '');
-  return (attachment.mimeType === DOCX_MIME ? 20 : 0) + (/\.docx$/i.test(name) ? 10 : 0) + (/(article|기사|feature|form|template)/i.test(name) ? 5 : 0);
-}
-
-export async function selectArticleAttachment(attachments, token, metadata=driveFileMetadata) {
-  const driveFiles = attachments.filter(attachment => attachment.kind === 'driveFile' && attachment.id);
-  await Promise.all(driveFiles.map(async attachment => {
-    if (attachment.mimeType) return;
-    try { Object.assign(attachment, await metadata(attachment.id, token)); }
-    catch (error) { attachment.metadataError = error.message; }
-  }));
-  const docx = driveFiles.filter(isDocx).sort((left, right) => docxScore(right) - docxScore(left) || String(left.name || '').localeCompare(String(right.name || '')))[0];
-  if (docx) return { type:'docx', attachment:docx };
-  const googleDoc = driveFiles.find(attachment => attachment.mimeType === GOOGLE_DOC_MIME);
-  return googleDoc ? { type:'google_doc', attachment:googleDoc } : null;
-}
 
 function textToParagraphs(value) {
   return String(value).replace(/\r\n?/g, '\n').split(/\n{2,}/).map(paragraph => `<p>${escapeText(paragraph).replace(/\n/g, '<br>')}</p>`).join('');
 }
 
-export function classroomResponseText(submission) {
-  const answer = submission?.shortAnswerSubmission?.answer;
-  return typeof answer === 'string' && answer.trim() ? answer : '';
-}
-
-function unsupportedAttachmentSummary(attachments) {
-  return attachments.map(attachment => ({ kind:attachment.kind, name:attachment.name || attachment.title || '', mimeType:attachment.mimeType || '', url:attachment.webViewLink || attachment.url || attachment.alternateLink || '' }));
-}
-
-export async function loadArticleOriginal(submission, token, dependencies={}) {
-  const responseText = classroomResponseText(submission);
-  if (responseText) return {selectedAttachment:null,originalContent:textToParagraphs(responseText),originalContentSource:'classroom_response',originalContentState:{status:'available',source:'classroom_response'}};
-  const attachments = classroomAttachments(submission);
-  const selection=await selectArticleAttachment(attachments,token,dependencies.metadata||driveFileMetadata);
-  if(!selection)return {selectedAttachment:null,originalContent:'',originalContentSource:'unsupported_attachment',unsupportedAttachments:unsupportedAttachmentSummary(attachments),originalContentState:{status:'unsupported',source:'unsupported_attachment',message:attachments.length?'첨부된 파일 형식은 원문 미리보기를 지원하지 않습니다. DOCX, Google Docs 또는 Classroom 짧은 답변을 사용해 주세요.':'제출된 텍스트 답변이나 첨부 원문이 없습니다.'}};
-  const selectedAttachment=selection.attachment;
-  if(selection.type==='docx') {
-    const sourceUrl=selectedAttachment.webViewLink||`https://drive.google.com/open?id=${encodeURIComponent(selectedAttachment.id)}`;
-    try {
-      if(Number(selectedAttachment.size||0)>MAX_DOCX_BYTES)throw Object.assign(new Error('DOCX file exceeds the supported size limit.'),{status:413,code:'docx_oversize'});
-      const data=await (dependencies.download||downloadDriveFile)(selectedAttachment.id,token,MAX_DOCX_BYTES);
-      const parsed=(dependencies.parseDocx||parseDocx)(data);
-      return {selectedAttachment,sourceUrl,originalContent:textToParagraphs(parsed.text),originalContentText:parsed.text,originalContentSource:'docx',...parsed.fields,originalContentState:{status:'available',source:'docx'}};
-    } catch(error) {
-      return {selectedAttachment,sourceUrl,originalContent:'',originalContentSource:'docx',originalContentState:{status:'error',source:'docx',code:error.code||'docx_parse_error',message:error.code==='docx_oversize'?'DOCX 파일이 8 MB 제한을 초과했습니다. Drive에서 원본을 확인해 주세요.':'DOCX 원문을 읽지 못했습니다. Drive에서 원본을 확인해 주세요.'}};
-    }
-  }
-  try { const doc=await (dependencies.read||readDoc)(selectedAttachment.id,token); return {selectedAttachment,sourceUrl:selectedAttachment.webViewLink||'',originalContent:textToParagraphs(doc.text),originalContentSource:'google_doc',originalContentState:{status:'available',source:'google_doc'}}; }
-  catch(error){return {selectedAttachment,sourceUrl:selectedAttachment.webViewLink||'',originalContent:'',originalContentSource:'google_doc',originalContentState:{status:'error',source:'google_doc',code:error.code||'google_docs_error',message:`Google Docs 원문을 불러오지 못했습니다 (${error.status||'unknown'}).`}};}
-}
 
 export function publicRoster(students) {
   return (students || []).map(student => ({id:String(student.userId || ''),name:String(student.profile?.name?.fullName || '').trim() || '이름 확인 불가'})).filter(student => student.id);
@@ -156,15 +82,6 @@ async function configuredRoster(courseId, token) {
   return students;
 }
 
-export function editForViewer(edit, role) {
-  if (!edit || role !== 'student' || edit.note_visibility === 'student') return edit;
-  const { editor_note: _internalNote, ...visible } = edit;
-  return visible;
-}
-
-export function configuredCourses(data, configuredCourseId) {
-  return { ...data, courses: (data.courses || []).filter(course => course.id === configuredCourseId) };
-}
 
 async function login(request, env) {
   requireConfig(env);
@@ -201,19 +118,6 @@ async function routeEditorial(request, env, pathname) {
   return env.ASSETS.fetch(request);
 }
 
-async function collectArticles(issue, token, viewer, includeSubmission = false) {
-  const rows = [];
-  for (const type of issue.articleTypes) {
-    const data = await classroom.submissions(issue.classroomCourseId, type.courseWorkId, token);
-    for (const submission of data.studentSubmissions || []) {
-      if (viewer.role === 'student' && submission.userId !== viewer.studentId) continue;
-      const attachments = classroomAttachments(submission);
-      rows.push({ id: submission.id, issueId: issue.id, courseId: issue.classroomCourseId, courseWorkId: type.courseWorkId, articleTypeId: type.id, studentId: submission.userId, state: submission.state, submittedAt: submission.updateTime || submission.creationTime, attachments, ...(includeSubmission?{submission}:{}) });
-    }
-  }
-  return rows;
-}
-
 export async function createPhotoAfterDrive(repo, photo, token, remove = deleteDriveFile) {
   try { return await repo.createPhoto(photo); }
   catch (error) {
@@ -229,17 +133,15 @@ export function photoForClient(row) {
   return { ...row, rightsConfirmed: Boolean(row.rights_confirmed ?? row.rightsConfirmed ?? true), contentUrl: `/api/photos/${id}/content`, originalUrl: `/api/photos/${id}/original` };
 }
 
-export async function authorizePhotoViewer(repo, photoId, viewer, configuredCourseId, loadArticles = collectArticles) {
+export async function authorizePhotoViewer(repo, photoId, viewer) {
   const photo = await repo.getPhoto(photoId);
   if (!photo) throw Object.assign(new Error('Photo not found.'), { status: 404, code: 'photo_not_found' });
   if (viewer.role === 'admin') return photo;
   if (viewer.role !== 'student' || photo.student_google_id !== viewer.studentId) throw Object.assign(new Error('Photo not found.'), { status: 404, code: 'photo_not_found' });
-  if(photo.article_id){const native=await repo.getNativeArticle(photo.article_id);if(native?.studentId===viewer.studentId)return photo;throw Object.assign(new Error('Photo not found.'),{status:404,code:'photo_not_found'});}
-  const issue = await repo.getIssue(photo.issue_id);
-  if (!issue || issue.classroomCourseId !== configuredCourseId) throw Object.assign(new Error('Photo not found.'), { status: 404, code:'photo_not_found' });
-  const owned = await loadArticles(issue, viewer.accessToken, viewer);
-  if (!owned.some(article => article.id === photo.article_submission_id && article.studentId === viewer.studentId)) throw Object.assign(new Error('Photo not found.'), { status: 404, code: 'photo_not_found' });
-  return photo;
+  if(!photo.article_id)throw Object.assign(new Error('Photo not found.'),{status:404,code:'photo_not_found'});
+  const native=await repo.getNativeArticle(photo.article_id);
+  if(native?.studentId===viewer.studentId)return photo;
+  throw Object.assign(new Error('Photo not found.'),{status:404,code:'photo_not_found'});
 }
 
 function safeInlineFilename(value) {
@@ -275,7 +177,7 @@ async function routeApi(request, env, pathname) {
   const nativeSubmit=pathname.match(/^\/api\/native\/articles\/([^/]+)\/submit$/);
   if(nativeSubmit&&request.method==='POST'){requireStudent(viewer);const found=await repo.getNativeArticle(nativeSubmit[1]);if(!found||found.studentId!==viewer.studentId)throw Object.assign(new Error('Article not found.'),{status:404,code:'article_not_found'});ensureAssignmentWritable(found.assignmentInstanceId&&await repo.getAssignmentInstance(found.assignmentInstanceId));if(!editableByStudent(found))throw Object.assign(new Error('Article is already submitted.'),{status:409,code:'article_locked'});if(!String(found.draftHtml).replace(/<[^>]*>/g,'').trim())throw Object.assign(new Error('Write the article before submitting.'),{status:400,code:'empty_article'});return ok(await repo.submitNativeArticle(found,viewer.sub),env);}
   const nativeImport=pathname.match(/^\/api\/native\/articles\/([^/]+)\/import$/);
-  if(nativeImport&&request.method==='POST'){requireStudent(viewer);const found=await repo.getNativeArticle(nativeImport[1]);if(!found||found.studentId!==viewer.studentId)throw Object.assign(new Error('Article not found.'),{status:404,code:'article_not_found'});ensureAssignmentWritable(found.assignmentInstanceId&&await repo.getAssignmentInstance(found.assignmentInstanceId));if(!editableByStudent(found))throw Object.assign(new Error('Article is locked.'),{status:409,code:'article_locked'});const form=await request.formData(),file=form.get('file');if(!(file instanceof File)||file.size>MAX_DOCX_BYTES)throw Object.assign(new Error('Upload a DOCX or TXT file no larger than 8 MB.'),{status:400,code:'invalid_import'});let text='';if(file.type===DOCX_MIME||/\.docx$/i.test(file.name))text=parseDocx(await file.arrayBuffer()).text;else if(file.type==='text/plain'||/\.txt$/i.test(file.name))text=await file.text();else throw Object.assign(new Error('Only DOCX and TXT files are supported.'),{status:400,code:'invalid_import'});return ok(await repo.saveStudentDraft(found.id,{...found,contentHtml:textToParagraphs(text)}),env);}
+  if(nativeImport&&request.method==='POST'){requireStudent(viewer);const found=await repo.getNativeArticle(nativeImport[1]);if(!found||found.studentId!==viewer.studentId)throw Object.assign(new Error('Article not found.'),{status:404,code:'article_not_found'});ensureAssignmentWritable(found.assignmentInstanceId&&await repo.getAssignmentInstance(found.assignmentInstanceId));if(!editableByStudent(found))throw Object.assign(new Error('Article is locked.'),{status:409,code:'article_locked'});const form=await request.formData(),file=form.get('file');if(!(file instanceof File)||file.size>MAX_DOCX_BYTES)throw Object.assign(new Error('Upload a DOCX or TXT file no larger than 8 MB.'),{status:400,code:'invalid_import'});let text='';if(file.type===DOCX_MIME||/\.docx$/i.test(file.name))text=parseDocx(await file.arrayBuffer()).text;else if(file.type==='text/plain'||/\.txt$/i.test(file.name))text=await file.text();else throw Object.assign(new Error('Only DOCX and TXT files are supported.'),{status:400,code:'invalid_import'});return ok(await repo.importStudentDraft(found,textToParagraphs(text),viewer.sub),env);}
   const nativeEditor=pathname.match(/^\/api\/native\/articles\/([^/]+)\/editor$/);
   if(nativeEditor&&request.method==='PATCH'){requireAdmin(viewer);const found=await repo.getNativeArticle(nativeEditor[1]);if(!found)throw Object.assign(new Error('Article not found.'),{status:404,code:'article_not_found'});const input=await request.json();return ok(await repo.saveEditorDraft(found,{titleKo:cleanTitle(input.titleKo),titleEn:cleanTitle(input.titleEn),contentHtml:sanitizeHtml(input.contentHtml||'').slice(0,300000),studentFeedback:String(input.studentFeedback||'').slice(0,10000),internalNote:String(input.internalNote||'').slice(0,10000),checkpoint:Boolean(input.checkpoint)},viewer.sub),env);}
   const nativeStatus=pathname.match(/^\/api\/native\/articles\/([^/]+)\/status$/);
@@ -285,9 +187,9 @@ async function routeApi(request, env, pathname) {
   const photoStatus=pathname.match(/^\/api\/photos\/([^/]+)\/status$/);
   if(photoStatus&&request.method==='PATCH'){requireAdmin(viewer);const input=await request.json();if(!['unreviewed','approved','hold','rejected'].includes(input.status))throw Object.assign(new Error('Invalid photo status.'),{status:400,code:'invalid_status'});return ok(await repo.updatePhotoStatus(photoStatus[1],input.status),env);}
   const photoContent=pathname.match(/^\/api\/photos\/([^/]+)\/content$/);
-  if(photoContent&&request.method==='GET'){const photo=await authorizePhotoViewer(repo,photoContent[1],viewer,env.NEWSPAPER_CLASSROOM_ID);return photoContentResponse(photo,viewer.accessToken);}
+  if(photoContent&&request.method==='GET'){const photo=await authorizePhotoViewer(repo,photoContent[1],viewer);return photoContentResponse(photo,viewer.accessToken);}
   const photoOriginal=pathname.match(/^\/api\/photos\/([^/]+)\/original$/);
-  if(photoOriginal&&request.method==='GET'){const photo=await authorizePhotoViewer(repo,photoOriginal[1],viewer,env.NEWSPAPER_CLASSROOM_ID);return new Response(null,{status:302,headers:{Location:`https://drive.google.com/open?id=${encodeURIComponent(photo.drive_file_id)}`,'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer'}});}
+  if(photoOriginal&&request.method==='GET'){const photo=await authorizePhotoViewer(repo,photoOriginal[1],viewer);return new Response(null,{status:302,headers:{Location:`https://drive.google.com/open?id=${encodeURIComponent(photo.drive_file_id)}`,'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer'}});}
   if(pathname==='/api/photos/upload'&&request.method==='POST'){requireStudent(viewer);const form=await request.formData(),file=form.get('file'),articleSubmissionId=String(form.get('articleSubmissionId')||''),native=await repo.getNativeArticle(articleSubmissionId);if(form.get('copyright')!=='true')throw Object.assign(new Error('Rights confirmation is required.'),{status:400,code:'rights_confirmation_required'});validateStudentPhoto(file,articleSubmissionId,native?.studentId===viewer.studentId?[native]:[]);const drive=await uploadToDrive(file,env.DRIVE_UPLOAD_FOLDER_ID,viewer.accessToken);const photo={issueId:native.issueId||'native',articleSubmissionId,articleId:articleSubmissionId,studentGoogleId:viewer.studentId,driveFileId:drive.id,filename:drive.name,mimeType:drive.mimeType,byteSize:Number(drive.size||file.size),caption:String(form.get('caption')||'').slice(0,1000),photographer:String(form.get('photographer')||'').slice(0,200),sourceType:String(form.get('sourceType')||'').slice(0,100),rightsConfirmed:true};return ok(photoForClient(await createPhotoAfterDrive(repo,photo,viewer.accessToken)),env,201);}
   throw Object.assign(new Error('API route not found.'), { status: 404, code: 'not_found' });
 }

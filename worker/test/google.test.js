@@ -145,24 +145,16 @@ test('membership lookup preserves 403 and does not treat it as a role miss', asy
   assert.equal(calls, 2);
 });
 
-test('all Classroom collection methods use the Classroom host and v1 paths', async () => {
+test('the only Classroom collection is the configured roster', async () => {
   const requested = [];
   globalThis.fetch = async (url, init) => {
     requested.push({ url: new URL(url), authorization: init.headers.Authorization });
-    return jsonResponse({ courses: [], courseWork: [], studentSubmissions: [] });
+    return jsonResponse({ students: [] });
   };
-  await classroom.courses('secret-token');
-  await classroom.courseWork('course/id', 'secret-token');
-  await classroom.submissions('course/id', 'work/id', 'secret-token');
   await classroom.students('course/id', 'secret-token');
-  assert.deepEqual(requested.map(item => item.url.origin), Array(4).fill(CLASSROOM_ORIGIN));
-  assert.deepEqual(requested.map(item => item.url.pathname), [
-    '/v1/courses',
-    '/v1/courses/course%2Fid/courseWork',
-    '/v1/courses/course%2Fid/courseWork/work%2Fid/studentSubmissions',
-    '/v1/courses/course%2Fid/students'
-  ]);
-  assert.deepEqual(requested.map(item => item.authorization), Array(4).fill('Bearer secret-token'));
+  assert.deepEqual(requested.map(item => item.url.origin), [CLASSROOM_ORIGIN]);
+  assert.deepEqual(requested.map(item => item.url.pathname), ['/v1/courses/course%2Fid/students']);
+  assert.deepEqual(requested.map(item => item.authorization), ['Bearer secret-token']);
 });
 
 test('student roster pagination is deduplicated into one collection result', async () => {
@@ -177,7 +169,7 @@ test('Classroom API status mapping is explicit and does not retain response deta
   for (const [upstreamStatus, expectedStatus] of cases) {
     await t.test(`${upstreamStatus} maps to ${expectedStatus}`, async () => {
       globalThis.fetch = async () => jsonResponse({ error: { message: 'sensitive detail', token: 'must-not-leak' } }, upstreamStatus);
-      await assert.rejects(classroom.courses('secret-token'), error => {
+      await assert.rejects(classroom.students('course','secret-token'), error => {
         assert.equal(error.status, expectedStatus);
         assert.equal(error.code, 'google_api_error');
         assert.equal('detail' in error, false);

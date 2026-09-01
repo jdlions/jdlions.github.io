@@ -4,13 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 globalThis.location = { search: '' };
 globalThis.localStorage = { getItem: () => null, setItem: () => {} };
-const { normalizePhoto, ProductionEditorialService, selectConfiguredCourses } = await import('../../assets/js/services/production-editorial-service.js');
-
-test('only the configured newspaper Classroom is selected', () => {
-  const courses = [{ id: 'other-active' }, { id: 'newspaper' }];
-  assert.deepEqual(selectConfiguredCourses(courses, 'newspaper'), [{ id: 'newspaper' }]);
-  assert.deepEqual(selectConfiguredCourses(courses, undefined), []);
-});
+const { normalizePhoto, ProductionEditorialService } = await import('../../assets/js/services/production-editorial-service.js');
 
 test('D1 photo rows normalize to the frontend camelCase model', () => {
   const normalized = normalizePhoto({
@@ -42,7 +36,16 @@ test('successful upload adds the new photo to the in-memory list immediately',as
 test('photo gallery uses authenticated lazy-loaded image URLs',async()=>{
   const [admin,student]=await Promise.all([readFile(new URL('../../assets/js/admin/admin-app.js',import.meta.url),'utf8'),readFile(new URL('../../assets/js/student/student-app.js',import.meta.url),'utf8')]);
   for(const source of [admin,student]){assert.match(source,/loading="lazy"/);assert.match(source,/contentUrl/);assert.doesNotMatch(source,/thumbnailLink/);}
-  assert.match(admin,/data-photo-filter="studentId"/);assert.match(admin,/data-photo-filter="articleSubmissionId"/);assert.match(admin,/data-photo-filter="status"/);
+  assert.match(admin,/data-photo-status/);assert.match(admin,/Drive 원본 열기/);assert.match(student,/사진 제출 내역/);
+});
+
+test('native student submit and admin status changes refresh detail and revision history',async()=>{
+  const calls=[];let detail={id:'article-1',studentId:'student-1',native:true,status:'draft',draftHtml:'<p>Body</p>',revisions:[]};
+  const request=async(path,init={})=>{calls.push(`${init.method||'GET'} ${path}`);if(path==='/api/native/articles')return [detail];if(path==='/api/assignments')return {campaigns:[],assignments:[]};if(path==='/api/photos')return [];if(path==='/api/native/articles/article-1/submit'){detail={...detail,status:'submitted',revisions:[{revisionNumber:1,revisionKind:'submission'}]};return detail;}if(path==='/api/native/articles/article-1/status'){detail={...detail,status:JSON.parse(init.body).status,revisions:[...detail.revisions,{revisionNumber:2,revisionKind:'status_change'}]};return detail;}if(path==='/api/native/articles/article-1')return detail;throw new Error(path);};
+  const service=await ProductionEditorialService.create({role:'student',studentId:'student-1'},request);
+  const submitted=await service.submitNativeArticle('article-1');assert.equal(submitted.status,'submitted');assert.equal(submitted.revisions.length,1);
+  const reviewed=await service.setNativeStatus('article-1','revision_requested');assert.equal(reviewed.status,'revision_requested');assert.equal(reviewed.revisions.length,2);
+  assert.deepEqual(calls.filter(x=>x==='GET /api/native/articles/article-1').length,2);
 });
 
 test('startup uses only lightweight lists and never fetches article detail', async () => {

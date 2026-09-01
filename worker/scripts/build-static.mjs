@@ -12,7 +12,6 @@ const files = [
   'assets/css/editorial-liquid-glass.css',
   'assets/js/config.js',
   'assets/js/admin/admin-app.js',
-  'assets/js/admin/article-ui-state.js',
   'assets/js/student/student-app.js',
   'assets/js/auth/auth-service.js',
   'assets/js/auth/login-app.js',
