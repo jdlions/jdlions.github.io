@@ -49,9 +49,6 @@ export async function resolveMembership(courseId, accessToken) {
 }
 
 export const classroom = {
-  courses: token => classroomFetch('/v1/courses?courseStates=ACTIVE', token),
-  courseWork: (courseId, token) => classroomFetch(`/v1/courses/${encodeURIComponent(courseId)}/courseWork?courseWorkStates=PUBLISHED`, token),
-  submissions: (courseId, workId, token) => classroomFetch(`/v1/courses/${encodeURIComponent(courseId)}/courseWork/${encodeURIComponent(workId)}/studentSubmissions`, token),
   students: async (courseId, token) => {
     const students = [];
     let pageToken = '';
@@ -65,21 +62,6 @@ export const classroom = {
     return students;
   }
 };
-
-function docsText(document) {
-  return (document.body?.content || []).flatMap(x => x.paragraph?.elements || []).map(x => x.textRun?.content || '').join('');
-}
-
-export async function readDoc(documentId, token) {
-  const response = await fetch(`https://docs.googleapis.com/v1/documents/${encodeURIComponent(documentId)}`, { headers: { Authorization: `Bearer ${token}` } });
-  if (!response.ok) throw Object.assign(new Error(`Google Docs request failed (${response.status}).`), { status: [400,403,404].includes(response.status) ? response.status : 502, code: 'google_docs_error' });
-  const document = await response.json();
-  return { documentId: document.documentId, title: document.title, text: docsText(document) };
-}
-
-export async function driveFileMetadata(fileId, token) {
-  return googleFetch(`/drive/v3/files/${encodeURIComponent(fileId)}?fields=id,name,mimeType,size,fileExtension,webViewLink`, token);
-}
 
 export async function downloadDriveFile(fileId, token, maxBytes) {
   const response = await fetch(`${GOOGLE_API}/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, { headers: { Authorization: `Bearer ${token}` } });
