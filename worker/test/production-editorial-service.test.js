@@ -48,6 +48,29 @@ test('native student submit and admin status changes refresh detail and revision
   assert.deepEqual(calls.filter(x=>x==='GET /api/native/articles/article-1').length,2);
 });
 
+test('assignment slot creates, opens, saves, and submits through native Worker routes',async()=>{
+  const calls=[];let detail={id:'assignment-slot-1',studentId:'student-1',articleType:'school',titleKo:'학교기사',status:'draft',draftHtml:'',revisions:[]};
+  const service=ProductionEditorialService.empty({role:'student'},async(path,init={})=>{calls.push(`${init.method||'GET'} ${path}`);if(path==='/api/assignments/instances/slot%201/article')return detail;if(path==='/api/native/articles/assignment-slot-1'&&init.method==='PATCH'){detail={...detail,...JSON.parse(init.body)};return detail;}if(path==='/api/native/articles/assignment-slot-1/submit'){detail={...detail,status:'submitted'};return detail;}if(path==='/api/native/articles/assignment-slot-1')return detail;throw new Error(`Unexpected request: ${path}`);});
+  const created=await service.openAssignmentArticle('slot 1');
+  const opened=await service.getArticleDetail(created.id);
+  await service.saveNativeDraft(opened.id,{articleType:'school',titleKo:'학교기사',titleEn:'School News',contentHtml:'<p>기사 본문</p>'});
+  const submitted=await service.submitNativeArticle(opened.id);
+  assert.equal(created.native,true);assert.equal(submitted.status,'submitted');
+  assert.deepEqual(calls,['POST /api/assignments/instances/slot%201/article','GET /api/native/articles/assignment-slot-1','PATCH /api/native/articles/assignment-slot-1','POST /api/native/articles/assignment-slot-1/submit','GET /api/native/articles/assignment-slot-1']);
+  assert.deepEqual(calls.filter(call=>/\/api\/articles\//.test(call)),[]);
+});
+
+test('assignment deletion uses DELETE and removes the campaign and its slots from local state',async()=>{
+  const calls=[];
+  const service=ProductionEditorialService.empty({role:'admin'},async(path,init={})=>{calls.push(`${init.method||'GET'} ${path}`);return {id:'campaign-1',deleted:true};});
+  service.state.campaigns=[{id:'campaign-1'},{id:'campaign-2'}];
+  service.state.assignments=[{id:'instance-1',campaignId:'campaign-1'},{id:'instance-2',campaignId:'campaign-2'}];
+  await service.deleteAssignment('campaign-1');
+  assert.deepEqual(calls,['DELETE /api/assignments/campaign-1']);
+  assert.deepEqual(service.listCampaigns().map(x=>x.id),['campaign-2']);
+  assert.deepEqual(service.listAssignments().map(x=>x.id),['instance-2']);
+});
+
 test('startup uses only lightweight lists and never fetches article detail', async () => {
   const calls=[];
   const request=async path=>{calls.push(path);if(path==='/api/native/articles')return [{id:'article-1',studentId:'student-1'}];if(path==='/api/assignments')return {campaigns:[],assignments:[]};if(path==='/api/photos')return [];throw new Error(`Unexpected request: ${path}`);};
