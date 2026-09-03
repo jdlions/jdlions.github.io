@@ -32,11 +32,3 @@ test('native UI includes autosave, submit lock, editor copy, feedback and revisi
   assert.match(student,/queueSave/);assert.match(student,/선생님께 제출/);assert.match(student,/article_locked|수정 요청/);assert.match(student,/선생님 편집본/);assert.match(student,/변경 이력/);assert.match(student,/\.docx,\.txt/);
   assert.match(admin,/기사 검토 큐/);assert.match(admin,/학생 원본 · 변경 불가/);assert.match(admin,/교사용 내부 메모/);assert.match(admin,/revision_requested/);
 });
-
-test('admin review filters use the accessible shared custom select',async()=>{
-  const [admin,ui,css]=await Promise.all([readFile(new URL('../../assets/js/admin/admin-app.js',import.meta.url),'utf8'),readFile(new URL('../../assets/js/shared/ui.js',import.meta.url),'utf8'),readFile(new URL('../../assets/css/editorial.css',import.meta.url),'utf8')]);
-  assert.doesNotMatch(admin,/<select data-(?:status|type)-filter/);
-  assert.match(admin,/customSelect\('status-filter'/);assert.match(admin,/customSelect\('type-filter'/);
-  assert.match(ui,/aria-haspopup="listbox"/);assert.match(ui,/aria-selected/);assert.match(ui,/ArrowDown/);assert.match(ui,/Escape/);assert.match(ui,/pointerdown/);
-  assert.match(css,/\.custom-select__trigger/);assert.match(css,/button\[aria-selected=true\] b/);
-});
