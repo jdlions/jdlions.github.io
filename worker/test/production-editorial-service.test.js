@@ -36,7 +36,7 @@ test('successful upload adds the new photo to the in-memory list immediately',as
 test('photo gallery uses authenticated lazy-loaded image URLs',async()=>{
   const [admin,student]=await Promise.all([readFile(new URL('../../assets/js/admin/admin-app.js',import.meta.url),'utf8'),readFile(new URL('../../assets/js/student/student-app.js',import.meta.url),'utf8')]);
   for(const source of [admin,student]){assert.match(source,/loading="lazy"/);assert.match(source,/contentUrl/);assert.doesNotMatch(source,/thumbnailLink/);}
-  assert.match(admin,/data-photo-status/);assert.match(admin,/Drive 원본 열기/);assert.match(student,/사진 제출 내역/);
+  assert.match(admin,/customSelect\('photo-status'/);assert.match(admin,/data-photo-select/);assert.match(admin,/updatePhotoStatus/);assert.match(admin,/Drive 원본 열기/);assert.match(student,/사진 제출 내역/);
 });
 
 test('native student submit and admin status changes refresh detail and revision history',async()=>{
