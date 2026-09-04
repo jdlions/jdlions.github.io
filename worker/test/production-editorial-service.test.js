@@ -36,7 +36,7 @@ test('successful upload adds the new photo to the in-memory list immediately',as
 test('photo gallery uses authenticated lazy-loaded image URLs',async()=>{
   const [admin,student]=await Promise.all([readFile(new URL('../../assets/js/admin/admin-app.js',import.meta.url),'utf8'),readFile(new URL('../../assets/js/student/student-app.js',import.meta.url),'utf8')]);
   for(const source of [admin,student]){assert.match(source,/loading="lazy"/);assert.match(source,/contentUrl/);assert.doesNotMatch(source,/thumbnailLink/);}
-  assert.match(admin,/data-photo-status/);assert.match(admin,/Drive 원본 열기/);assert.match(student,/사진 제출 내역/);
+  assert.match(admin,/customSelect\('photo-status'/);assert.match(admin,/data-photo-select/);assert.match(admin,/updatePhotoStatus/);assert.match(admin,/Drive 원본 열기/);assert.match(student,/사진 제출 내역/);
 });
 
 test('native student submit and admin status changes refresh detail and revision history',async()=>{
@@ -46,6 +46,29 @@ test('native student submit and admin status changes refresh detail and revision
   const submitted=await service.submitNativeArticle('article-1');assert.equal(submitted.status,'submitted');assert.equal(submitted.revisions.length,1);
   const reviewed=await service.setNativeStatus('article-1','revision_requested');assert.equal(reviewed.status,'revision_requested');assert.equal(reviewed.revisions.length,2);
   assert.deepEqual(calls.filter(x=>x==='GET /api/native/articles/article-1').length,2);
+});
+
+test('assignment slot creates, opens, saves, and submits through native Worker routes',async()=>{
+  const calls=[];let detail={id:'assignment-slot-1',studentId:'student-1',articleType:'school',titleKo:'학교기사',status:'draft',draftHtml:'',revisions:[]};
+  const service=ProductionEditorialService.empty({role:'student'},async(path,init={})=>{calls.push(`${init.method||'GET'} ${path}`);if(path==='/api/assignments/instances/slot%201/article')return detail;if(path==='/api/native/articles/assignment-slot-1'&&init.method==='PATCH'){detail={...detail,...JSON.parse(init.body)};return detail;}if(path==='/api/native/articles/assignment-slot-1/submit'){detail={...detail,status:'submitted'};return detail;}if(path==='/api/native/articles/assignment-slot-1')return detail;throw new Error(`Unexpected request: ${path}`);});
+  const created=await service.openAssignmentArticle('slot 1');
+  const opened=await service.getArticleDetail(created.id);
+  await service.saveNativeDraft(opened.id,{articleType:'school',titleKo:'학교기사',titleEn:'School News',contentHtml:'<p>기사 본문</p>'});
+  const submitted=await service.submitNativeArticle(opened.id);
+  assert.equal(created.native,true);assert.equal(submitted.status,'submitted');
+  assert.deepEqual(calls,['POST /api/assignments/instances/slot%201/article','GET /api/native/articles/assignment-slot-1','PATCH /api/native/articles/assignment-slot-1','POST /api/native/articles/assignment-slot-1/submit','GET /api/native/articles/assignment-slot-1']);
+  assert.deepEqual(calls.filter(call=>/\/api\/articles\//.test(call)),[]);
+});
+
+test('assignment deletion uses DELETE and removes the campaign and its slots from local state',async()=>{
+  const calls=[];
+  const service=ProductionEditorialService.empty({role:'admin'},async(path,init={})=>{calls.push(`${init.method||'GET'} ${path}`);return {id:'campaign-1',deleted:true};});
+  service.state.campaigns=[{id:'campaign-1'},{id:'campaign-2'}];
+  service.state.assignments=[{id:'instance-1',campaignId:'campaign-1'},{id:'instance-2',campaignId:'campaign-2'}];
+  await service.deleteAssignment('campaign-1');
+  assert.deepEqual(calls,['DELETE /api/assignments/campaign-1']);
+  assert.deepEqual(service.listCampaigns().map(x=>x.id),['campaign-2']);
+  assert.deepEqual(service.listAssignments().map(x=>x.id),['instance-2']);
 });
 
 test('startup uses only lightweight lists and never fetches article detail', async () => {
