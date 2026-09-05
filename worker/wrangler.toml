@@ -3,6 +3,7 @@ main = "src/index.js"
 compatibility_date = "2026-08-01"
 
 [vars]
+PRIDEDESK_ORIGIN = "https://pridesk.vercel.app"
 EDITORIAL_ORIGIN = "https://lions-pride-editorial-api.editor-936.workers.dev"
 OAUTH_REDIRECT_URI = "https://lions-pride-editorial-api.editor-936.workers.dev/auth/callback"
 NEWSPAPER_CLASSROOM_ID = "171421525337"

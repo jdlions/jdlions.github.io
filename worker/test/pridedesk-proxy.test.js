@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import worker from '../src/index.js';
 import { pridedeskRequest } from '../src/pridedesk-proxy.js';
 import { STATE_COOKIE, SESSION_COOKIE, seal, unseal } from '../src/security.js';
@@ -12,13 +13,45 @@ const env = { PRIDEDESK_ORIGIN: frontend, EDITORIAL_ORIGIN: backend,
 const send = (path, init = {}, config = env) => worker.fetch(new Request(`${backend}${path}`, init), config);
 
 test('proxy is opt-in, validates exact HTTPS origin, and ignores forwarded headers', async () => {
-  for (const value of [undefined, '', 'http://desk.example', `${frontend}/`, `${frontend}/path`, 'https://user:pass@desk.example', '*']) {
+  for (const value of [undefined, null, 123, {}, '', ' \r\n ', 'http://desk.example', `${frontend}/`, `${frontend}/path`, 'https://user:pass@desk.example', '*',
+    `${frontend}?`, `${frontend}#`, `${frontend}?x=1`, `${frontend}#fragment`,
+    'https://desk.exa\nmple', 'https://desk.exa\tmple', 'https://desk.example\\',
+    'https:desk.example', 'https:///desk.example', 'https://desk.example/..',
+    'https://@desk.example', 'https://*.example', '\u0000https://desk.example', `${frontend}\u200b`]) {
     const response = await send('/pridedesk/auth/login', {}, { ...env, PRIDEDESK_ORIGIN: value });
     assert.equal(response.status, 503);
   }
   const response = await send('/pridedesk/auth/login', { headers: { 'X-Forwarded-Host': 'evil.example', Forwarded: 'host=evil.example' } });
   assert.equal(new URL(response.headers.get('location')).searchParams.get('redirect_uri'), `${frontend}/auth/callback`);
   assert.equal((await send('/pridedesk/editorial/admin/')).status, 404);
+});
+
+test('production deployment includes the exact configured PrideDesk origin', () => {
+  const config = readFileSync(new URL('../wrangler.toml', import.meta.url), 'utf8');
+  const vars = config.split('[vars]')[1].split(/^\[/m)[0];
+  assert.match(vars, /^PRIDEDESK_ORIGIN = "https:\/\/pridesk\.vercel\.app"$/m);
+});
+
+test('surrounding whitespace is normalized consistently for session, OAuth and CSRF', async () => {
+  for (const value of ['https://pridesk.vercel.app', ` ${frontend} `, `\t\r\n${frontend}\r\n`, `\u00a0${frontend}\ufeff`]) {
+    const config = { ...env, PRIDEDESK_ORIGIN: value };
+    const canonical = value.trim();
+    const login = await send('/pridedesk/auth/login', { headers: { 'X-Forwarded-Host': 'evil.example' } }, config);
+    assert.equal(login.status, 302);
+    assert.equal(new URL(login.headers.get('location')).searchParams.get('redirect_uri'), `${canonical}/auth/callback`);
+    const saved = await unseal(decodeURIComponent(login.headers.get('set-cookie').split(';')[0].split('=')[1]), env.SESSION_SECRET);
+    assert.equal(saved.origin, canonical);
+    const session = await send('/pridedesk/api/session', {}, config);
+    assert.equal(session.status, 200);
+    assert.equal((await session.json()).authenticated, false);
+    for (const [origin, csrf, status] of [[canonical, '1', 200], [canonical, '', 403], ['https://evil.example', '1', 403]]) {
+      const response = await send('/pridedesk/auth/logout', { method: 'POST', headers: { Origin: origin, 'X-Editorial-CSRF': csrf } }, config);
+      assert.equal(response.status, status);
+    }
+    assert.equal(config.PRIDEDESK_ORIGIN, value);
+    const legacy = await send('/auth/login', {}, config);
+    assert.equal(new URL(legacy.headers.get('location')).searchParams.get('redirect_uri'), `${backend}/auth/callback`);
+  }
 });
 
 test('proxy preserves multipart bytes, query, method, cookie and CSRF header', async () => {
