@@ -3,11 +3,15 @@
 export function pridedeskRequest(request, env) {
   const url = new URL(request.url);
   if (!url.pathname.startsWith('/pridedesk/')) return { request, env };
+  // Trim only surrounding copy/paste whitespace. Comparing against the parsed
+  // origin still rejects paths, credentials and URL parser repairs (including
+  // embedded tabs/newlines, backslashes and empty query/fragment delimiters).
+  const configuredOrigin = typeof env.PRIDEDESK_ORIGIN === 'string' ? env.PRIDEDESK_ORIGIN.trim() : '';
   let origin;
   try {
-    origin = new URL(env.PRIDEDESK_ORIGIN);
+    origin = new URL(configuredOrigin);
   } catch { /* Fail closed until configured. */ }
-  if (!origin || origin.protocol !== 'https:' || origin.origin !== env.PRIDEDESK_ORIGIN) {
+  if (!origin || origin.protocol !== 'https:' || origin.hostname.includes('*') || origin.origin !== configuredOrigin) {
     throw Object.assign(new Error('PRIDEDESK_ORIGIN must be an exact HTTPS origin.'), { status: 503, code: 'configuration_error' });
   }
   const pathname = url.pathname.slice('/pridedesk'.length);

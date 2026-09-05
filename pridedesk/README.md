@@ -72,13 +72,16 @@ Keep `EDITORIAL_ORIGIN`, `OAUTH_REDIRECT_URI`, `GOOGLE_CLIENT_ID`,
 `DRIVE_UPLOAD_FOLDER_ID` and the D1 binding unchanged. No migration is needed.
 Preserve `PRIDEDESK_ORIGIN` in future deployment configuration (Wrangler CLI
 variables or the managed vars configuration); do not let an existing Wrangler
-vars table overwrite a console-only setting.
+vars table overwrite a console-only setting. The production `worker/wrangler.toml`
+now explicitly sets `PRIDEDESK_ORIGIN = "https://pridesk.vercel.app"` (note the
+spelling). Update that tracked value if the production domain changes.
 
 Example release command, **not executed by this change**, from `worker/`:
 
 ```sh
-npm run build:static
-npx wrangler deploy --var PRIDEDESK_ORIGIN:https://YOUR-ASSIGNED-DOMAIN
+npm ci
+npm run check
+npm run deploy
 ```
 
 In the existing Google OAuth web client, append this **Authorized redirect URI**:
@@ -128,8 +131,28 @@ After the authorized deployment, verify in a browser on the fixed domain:
 6. Requests without the CSRF header or with another Origin return 403. Confirm
    original Worker login and the public homepage still work.
 
-To disable only the new entry point, remove `PRIDEDESK_ORIGIN`; the namespace
+To disable only the new entry point, set `PRIDEDESK_ORIGIN = ""` in Wrangler and deploy; the namespace
 fails closed with 503. Leave the original Worker origin/callback untouched.
+
+## Origin configuration errors
+
+The literal `https://pridesk.vercel.app` passes the original validator. A 503
+with the exact-origin message therefore does not prove that this visible value
+is invalid: the running binding may be missing, different, or contain whitespace.
+The previous Wrangler vars table omitted this variable, so a CLI deployment
+could overwrite a dashboard-only setting. Keeping it in the tracked vars table
+makes subsequent `npm run deploy` releases deterministic.
+
+The validator trims surrounding whitespace only, then requires exact equality
+with the parsed HTTPS origin. Paths (including a trailing slash), credentials,
+query/fragment delimiters, embedded control characters, wildcard hosts and URL
+parser repairs remain rejected. It never derives the origin from request headers.
+This preserves exact OAuth state and CSRF comparisons using one canonical value.
+
+The code/config tests and dry-run do not inspect the live Cloudflare binding or
+complete real Google sign-in. After deployment, verify `/api/session` and login
+on the Vercel domain using the verification steps above. Google must include
+`https://pridesk.vercel.app/auth/callback` as an authorized redirect URI.
 
 References: [Vercel external rewrites](https://vercel.com/docs/routing/rewrites),
 [root-directory shared source](https://vercel.com/docs/monorepos/monorepo-faq),
