@@ -121,3 +121,6 @@ npm run check
 ## 보안 원칙
 
 원문과 Google/Drive metadata는 신뢰하지 않습니다. Docs 텍스트는 escape하고 편집 HTML은 Worker allow-list sanitizer를 거칩니다. CORS/CSRF와 현재 Classroom membership 확인을 유지하고, 비공개 자료를 공개 Archive나 로그에 넣지 않습니다. 실제 운영 전반에는 rate limiting, 감사 로그, 보존·삭제 정책과 D1 백업을 별도로 운영하세요.
+# PrideDesk Vercel 분리
+
+PrideDesk 전용 빌드와 same-origin Worker 프록시는 [`pridedesk/README.md`](pridedesk/README.md)를 참고하세요. 공개 홈페이지와 기존 Worker 배포 설정은 유지하며, 이 기능 브랜치는 운영 배포를 자동 변경하지 않습니다.
