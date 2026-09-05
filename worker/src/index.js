@@ -2,6 +2,7 @@ import { clearCookie, cookie, randomToken, requireTrustedOrigin, sanitizeHtml, s
 import { classroom, deleteDriveFile, driveFolderPreflight, exchangeCode, resolveMembership, streamDriveImage, uploadToDrive, userInfo } from './google.js';
 import { repository } from './repository.js';
 import { DOCX_MIME, MAX_DOCX_BYTES, parseDocx } from './docx.js';
+import { pridedeskRequest } from './pridedesk-proxy.js';
 
 const SESSION_SECONDS = 45 * 60;
 const MEMBERSHIP_CACHE_MS = 5 * 60 * 1000;
@@ -92,7 +93,7 @@ async function login(request, env) {
   if (new URL(request.url).origin !== env.EDITORIAL_ORIGIN) throw Object.assign(new Error('Editorial origin is misconfigured.'), { status: 503, code: 'configuration_error' });
   const state = randomToken(), verifier = randomToken(48);
   const challenge = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
-  const stateValue = await seal({ state, verifier }, env.SESSION_SECRET);
+  const stateValue = await seal({ state, verifier, origin: env.EDITORIAL_ORIGIN }, env.SESSION_SECRET);
   const query = new URLSearchParams({ client_id: env.GOOGLE_CLIENT_ID, redirect_uri: env.OAUTH_REDIRECT_URI, response_type: 'code', scope: scopes.join(' '), state, code_challenge: challenge, code_challenge_method: 'S256', access_type: 'online', include_granted_scopes: 'true' });
   return new Response(null, { status: 302, headers: { Location: `https://accounts.google.com/o/oauth2/v2/auth?${query}`, 'Set-Cookie': setCookie(STATE_COOKIE, stateValue, 600), 'Cache-Control': 'no-store' } });
 }
@@ -101,6 +102,7 @@ async function callback(request, env) {
   requireConfig(env);
   const url = new URL(request.url), saved = await unseal(cookie(request, STATE_COOKIE) || '', env.SESSION_SECRET);
   if (url.origin !== env.EDITORIAL_ORIGIN) throw Object.assign(new Error('Editorial origin is misconfigured.'), { status: 503, code: 'configuration_error' });
+  if (saved && (saved.origin ? saved.origin !== url.origin : env.PRIDEDESK_REQUEST)) throw Object.assign(new Error('OAuth state origin validation failed.'), { status: 400, code: 'oauth_state_invalid' });
   if (!saved || !url.searchParams.get('state') || saved.state !== url.searchParams.get('state')) throw Object.assign(new Error('OAuth state validation failed.'), { status: 400, code: 'oauth_state_invalid' });
   if (url.searchParams.get('error')) throw Object.assign(new Error('Google sign-in was cancelled or denied.'), { status: 401, code: 'oauth_denied' });
   const code = url.searchParams.get('code'); if (!code) throw Object.assign(new Error('OAuth authorization code is missing.'), { status: 400, code: 'oauth_code_missing' });
@@ -109,11 +111,11 @@ async function callback(request, env) {
   membershipCache.set(`${env.NEWSPAPER_CLASSROOM_ID}:${identity.sub}`,{value:membership,expiresAt:Date.now()+MEMBERSHIP_CACHE_MS});
   const expires = Math.min(Date.now() + SESSION_SECONDS * 1000, Date.now() + Number(tokens.expires_in || SESSION_SECONDS) * 1000);
   const value = await seal({ sub: identity.sub, name: identity.name, email: identity.email, role: membership.role, studentId: membership.studentId, classroomUserId: membership.classroomUserId, courseId: env.NEWSPAPER_CLASSROOM_ID, accessToken: tokens.access_token, exp: expires }, env.SESSION_SECRET);
-  return new Response(null, { status: 302, headers: [['Location', callbackRedirect(url, membership.role)], ['Set-Cookie', setCookie(SESSION_COOKIE, value, SESSION_SECONDS)], ['Set-Cookie', clearCookie(STATE_COOKIE)], ['Cache-Control','no-store']] });
+  return new Response(null, { status: 302, headers: [['Location', callbackRedirect(url, membership.role, env.PRIDEDESK_REQUEST)], ['Set-Cookie', setCookie(SESSION_COOKIE, value, SESSION_SECONDS)], ['Set-Cookie', clearCookie(STATE_COOKIE)], ['Cache-Control','no-store']] });
 }
 
-export function callbackRedirect(url, role) {
-  return `${url.origin}${role === 'admin' ? '/editorial/admin/' : '/editorial/student/'}`;
+export function callbackRedirect(url, role, pridedesk = false) {
+  return `${url.origin}${pridedesk ? '' : '/editorial'}/${role === 'admin' ? 'admin' : 'student'}/`;
 }
 
 async function routeEditorial(request, env, pathname) {
@@ -202,10 +204,11 @@ async function routeApi(request, env, pathname) {
 export default {
   async fetch(request, env) {
     try {
+      ({ request, env } = pridedeskRequest(request, env));
       const url = new URL(request.url);
       if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors(env) });
-      if (url.pathname === '/auth/login' && request.method === 'GET') return login(request, env);
-      if (url.pathname === '/auth/callback' && request.method === 'GET') return callback(request, env);
+      if (url.pathname === '/auth/login' && request.method === 'GET') return await login(request, env);
+      if (url.pathname === '/auth/callback' && request.method === 'GET') return await callback(request, env);
       if (url.pathname === '/auth/logout' && request.method === 'POST') { requireTrustedOrigin(request); return ok({ authenticated: false }, env, 200, { 'Set-Cookie': clearCookie(SESSION_COOKIE) }); }
       if (url.pathname === '/api/session' && request.method === 'GET' && !cookie(request, SESSION_COOKIE)) return ok({ authenticated: false, user: null }, env);
       if (url.pathname.startsWith('/api/')) { requireTrustedOrigin(request); return await routeApi(request, env, url.pathname); }

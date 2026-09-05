@@ -6,4 +6,6 @@ worker/.env.*
 worker/.wrangler/
 worker/.static/
 *.local
+pridedesk/dist/
+pridedesk/.vercel/
 

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "https://lions-pride-editorial-api.editor-936.workers.dev/pridedesk/api/:path*" },
+    { "source": "/auth/:path*", "destination": "https://lions-pride-editorial-api.editor-936.workers.dev/pridedesk/auth/:path*" }
+  ],
+  "redirects": [
+    { "source": "/", "destination": "/login/", "permanent": false },
+    { "source": "/login", "destination": "/login/", "permanent": false },
+    { "source": "/admin", "destination": "/admin/", "permanent": false },
+    { "source": "/student", "destination": "/student/", "permanent": false },
+    { "source": "/editorial", "destination": "/login/", "permanent": false },
+    { "source": "/editorial/:page(login|admin|student)/", "destination": "/:page/", "permanent": false }
+  ],
+  "headers": [
+    { "source": "/(.*)", "headers": [
+      { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
+      { "key": "X-Content-Type-Options", "value": "nosniff" },
+      { "key": "Referrer-Policy", "value": "no-referrer" },
+      { "key": "Cache-Control", "value": "private, no-store" },
+      { "key": "CDN-Cache-Control", "value": "no-store" },
+      { "key": "Vercel-CDN-Cache-Control", "value": "no-store" }
+    ] }
+  ]
+}

@@ -1,28 +1,11 @@
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { editorialFiles as files } from '../../scripts/editorial-files.mjs';
 
 const workerRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = resolve(workerRoot, '..');
 const outputRoot = resolve(workerRoot, '.static', 'editorial');
-
-const files = [
-  'cleanlogo.png',
-  'assets/css/editorial.css',
-  'assets/css/editorial-liquid-glass.css',
-  'assets/js/config.js',
-  'assets/js/admin/admin-app.js',
-  'assets/js/student/student-app.js',
-  'assets/js/auth/auth-service.js',
-  'assets/js/auth/login-app.js',
-  'assets/js/auth/production-auth-service.js',
-  'assets/js/auth/route-guard.js',
-  'assets/js/services/api-client.js',
-  'assets/js/services/production-editorial-service.js',
-  'assets/js/services/service-container.js',
-  'assets/js/shared/shell.js',
-  'assets/js/shared/ui.js'
-];
 
 await rm(resolve(workerRoot, '.static'), { recursive: true, force: true });
 for (const file of files) {
