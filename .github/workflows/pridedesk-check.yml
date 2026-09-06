@@ -27,4 +27,7 @@ jobs:
       - run: npm ci --prefix worker
       - run: npm run check --prefix worker
       - run: npm test --prefix pridedesk
+      - run: npx playwright install --with-deps chromium
+        working-directory: worker
+      - run: npm run test:browser --prefix worker
       - run: python3 scripts/validate.py

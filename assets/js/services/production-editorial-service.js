@@ -52,7 +52,7 @@ export class ProductionEditorialService {
   listStudents(){return structuredClone(this.state.students);}
   listArticles(filters={}){return structuredClone(this.state.articles.filter(x=>Object.entries(filters).every(([k,v])=>!v||x[k]===v)));}
   listPhotos(filters={}){return structuredClone(this.state.photos.filter(x=>Object.entries(filters).every(([k,v])=>!v||x[k]===v)));}
-  async createNativeArticle(input){const saved=this.normalizeArticle(await this.request('/api/native/articles',{method:'POST',body:JSON.stringify(input)}));this.state.articles.unshift(saved);return structuredClone(saved);}
+  async createNativeArticle(input){const saved={...this.normalizeArticle(await this.request('/api/native/articles',{method:'POST',body:JSON.stringify(input)})),native:true};this.state.articles.unshift(saved);return structuredClone(saved);}
   async createAssignment(input){const campaign=await this.request('/api/assignments',{method:'POST',body:JSON.stringify(input)});this.state.campaigns.unshift(campaign);return structuredClone(campaign);}
   async updateAssignment(id,input){const campaign=await this.request(`/api/assignments/${encodeURIComponent(id)}`,{method:'PATCH',body:JSON.stringify(input)});Object.assign(this.state.campaigns.find(x=>x.id===id),campaign);return campaign;}
   async deleteAssignment(id){const result=await this.request(`/api/assignments/${encodeURIComponent(id)}`,{method:'DELETE'});this.state.campaigns=this.state.campaigns.filter(x=>x.id!==id);this.state.assignments=this.state.assignments.filter(x=>x.campaignId!==id);return result;}
@@ -64,7 +64,25 @@ export class ProductionEditorialService {
   async importNativeArticle(id,file){const body=new FormData();body.append('file',file);await this.request(`/api/native/articles/${encodeURIComponent(id)}/import`,{method:'POST',body});return this.refreshArticleDetail(id);}
   async saveNativeEditor(id,input){const saved=this.normalizeArticle(await this.request(`/api/native/articles/${encodeURIComponent(id)}/editor`,{method:'PATCH',body:JSON.stringify(input)}));Object.assign(this.state.articles.find(x=>x.id===id),saved);return saved;}
   async setNativeStatus(id,status){await this.request(`/api/native/articles/${encodeURIComponent(id)}/status`,{method:'PATCH',body:JSON.stringify({status})});return this.refreshArticleDetail(id);}
-  async submitPhotos(input,files){const created=[];for(const file of files){const body=new FormData();Object.entries(input).forEach(([k,v])=>body.append(k,v));body.append('copyright','true');body.append('file',file);created.push(normalizePhoto(await this.request('/api/photos/upload',{method:'POST',body})));}this.state.photos.unshift(...created);return created;}
+  async submitPhotos(input,files){
+    if(this.photoUploadPending)throw new Error('Photo upload is already in progress.');
+    this.photoUploadPending=true;
+    this.uploadedFiles??=new WeakMap();
+    const created=[],key=JSON.stringify(input);
+    try{
+      for(const file of files){
+        // Retrying a partially successful selection must not resend confirmed files.
+        const previous=this.uploadedFiles.get(file);
+        if(previous?.key===key){created.push(previous.photo);continue;}
+        const body=new FormData();Object.entries(input).forEach(([k,v])=>body.append(k,v));
+        body.append('copyright','true');body.append('file',file);
+        const photo=normalizePhoto(await this.request('/api/photos/upload',{method:'POST',body}));
+        this.uploadedFiles.set(file,{key,photo});this.state.photos.unshift(photo);created.push(photo);
+      }
+      return created;
+    }finally{this.photoUploadPending=false;}
+  }
+
   reset(){throw new Error('Production data cannot be reset from the browser.');}
   async updatePhotoStatus(id,status){const saved=normalizePhoto(await this.request(`/api/photos/${encodeURIComponent(id)}/status`,{method:'PATCH',body:JSON.stringify({status})}));const row=this.state.photos.find(x=>x.id===id);if(row)Object.assign(row,saved);return saved;}
   publishIssue(){throw new Error('Publication remains a separately governed workflow.');}

@@ -8,7 +8,7 @@ export class ProductionAuthService {
     catch { return new ProductionAuthService(null); }
   }
   getSession() { return this.session; }
-  validateSession() { return Promise.resolve(this.session); }
+  async validateSession() { const result=await api('/api/session'); this.session=result?.authenticated?result.user:null; return this.session; }
   login(returnTo=location.pathname) { location.href=editorialUrl(`/auth/login?returnTo=${encodeURIComponent(returnTo || '/editorial/login/')}`); }
   async logout() { await api('/auth/logout',{method:'POST'}); this.session=null; location.href=editorialUrl('/editorial/login/'); }
 }

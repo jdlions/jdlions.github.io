@@ -6,3 +6,5 @@ const session=authService.getSession();
 if(session)location.replace(editorialUrl(session.role==='admin'?'/editorial/admin/':'/editorial/student/'));
 const loginButton=document.querySelector('[data-google-login]');
 loginButton.addEventListener('click',()=>{loginButton.disabled=true;loginButton.setAttribute('aria-busy','true');loginButton.querySelector('b').textContent='Google 로그인으로 이동 중…';authService.login(params.get('returnTo'));});
+
+window.addEventListener('pageshow',async event=>{if(!event.persisted)return;try{const user=await authService.validateSession();if(user)location.replace(editorialUrl(user.role==='admin'?'/editorial/admin/':'/editorial/student/'));}catch{}finally{loginButton.disabled=false;loginButton.removeAttribute('aria-busy');}});
