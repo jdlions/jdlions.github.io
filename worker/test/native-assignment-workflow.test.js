@@ -40,15 +40,15 @@ test('student assignment article route accepts the canonical service path and th
   assert.equal(assignmentArticleInstanceId('/api/assignments/slot-2/article'),null);
 });
 
-test('assignment deletion refuses linked articles and otherwise removes only assignment records',async()=>{
+test('assignment deletion preserves linked articles and removes only assignment records',async()=>{
   const statements=[];
   const makeDb=linkedCount=>({
-    prepare(sql){return {bind(...args){return {first:async()=>sql.startsWith('SELECT * FROM assignment_campaigns')?{id:'campaign-1',name:'과제',status:'active'}:sql.includes('COUNT(*)')?{count:linkedCount}:null,all:async()=>({results:[]}),run:async()=>{statements.push({sql,args});}};}};},
+    prepare(sql){return {bind(...args){return {first:async()=>sql.startsWith('SELECT * FROM assignment_campaigns')?{id:'campaign-1',name:'과제',status:'active'}:sql.includes('COUNT(*)')?{instanceCount:2,articleCount:linkedCount,submissionCount:linkedCount}:null,all:async()=>({results:[]}),run:async()=>{statements.push({sql,args});}};}};},
     async batch(items){for(const item of items)await item.run();}
   });
-  await assert.rejects(new D1EditorialRepository(makeDb(1)).deleteCampaign('campaign-1'),error=>error.code==='assignment_has_articles'&&error.status===409);
-  const result=await new D1EditorialRepository(makeDb(0)).deleteCampaign('campaign-1');
-  assert.deepEqual(result,{id:'campaign-1',deleted:true});
+  assert.equal((await new D1EditorialRepository(makeDb(1)).assignmentDeletionSummary('campaign-1')).articleCount,1);
+  const result=await new D1EditorialRepository(makeDb(1)).deleteCampaign('campaign-1');
+  assert.deepEqual(result,{id:'campaign-1',deleted:true,mode:'preserve_articles'});
   assert.deepEqual(statements.map(x=>x.sql),[
     'DELETE FROM assignment_slot_instances WHERE campaign_id=?',
     'DELETE FROM assignment_recipients WHERE campaign_id=?',

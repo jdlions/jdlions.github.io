@@ -79,3 +79,5 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .queue-row>span{min-width:0;overflow-wrap:anywhere}
 @media(max-width:1200px){.queue-row{grid-template-columns:100px minmax(0,1fr) 100px}.queue-row>span:nth-child(3),.queue-row>span:nth-child(4){display:block;grid-column:2}.queue-row>b{grid-column:3;grid-row:1}}
 @media(max-width:700px){.queue-row{grid-template-columns:80px minmax(0,1fr)}.queue-row>b{display:none}}
+
+.assignment-delete-dialog{width:min(560px,calc(100% - 32px));max-height:calc(100dvh - 32px);overflow:auto;padding:24px;border:1px solid var(--line);border-radius:18px;background:var(--panel);color:var(--white)}.assignment-delete-dialog::backdrop{background:rgba(2,3,8,.75)}.assignment-delete-dialog p{overflow-wrap:anywhere}.assignment-delete-dialog button:disabled{opacity:.45;cursor:not-allowed}

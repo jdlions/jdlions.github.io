@@ -65,7 +65,7 @@ test('assignment deletion uses DELETE and removes the campaign and its slots fro
   const service=ProductionEditorialService.empty({role:'admin'},async(path,init={})=>{calls.push(`${init.method||'GET'} ${path}`);return {id:'campaign-1',deleted:true};});
   service.state.campaigns=[{id:'campaign-1'},{id:'campaign-2'}];
   service.state.assignments=[{id:'instance-1',campaignId:'campaign-1'},{id:'instance-2',campaignId:'campaign-2'}];
-  await service.deleteAssignment('campaign-1');
+  await service.deleteAssignment('campaign-1','삭제');
   assert.deepEqual(calls,['DELETE /api/assignments/campaign-1']);
   assert.deepEqual(service.listCampaigns().map(x=>x.id),['campaign-2']);
   assert.deepEqual(service.listAssignments().map(x=>x.id),['instance-2']);
@@ -143,4 +143,19 @@ test('admin and student apps render loading and retry states without top-level s
   ]);
   assert.doesNotMatch(container,/export const editorialService = await/);
   for(const source of [admin,student]){assert.match(source,/loadEditorialService/);assert.match(source,/data-retry-startup/);}
+});
+test('assignment deletion clears cached links but preserves article and photo content; failure preserves state',async()=>{
+ let fail=true;
+ const service=ProductionEditorialService.empty({role:'admin'},async(path,init)=>{
+  assert.deepEqual(JSON.parse(init.body),{confirmation:'삭제',mode:'preserve_articles'});
+  if(fail)throw new Error('failed');return {deleted:true};
+ });
+ service.state.campaigns=[{id:'c'}];service.state.assignments=[{id:'i',campaignId:'c',articleId:'a'}];
+ service.state.articles=[{id:'a',campaignId:'c',assignmentInstanceId:'i',assignmentName:'old',draftHtml:'keep',detailLoaded:true}];
+ service.state.photos=[{id:'p',articleId:'a'}];
+ const before=service.getState();
+ await assert.rejects(service.deleteAssignment('c','삭제'));assert.deepEqual(service.getState(),before);
+ fail=false;await service.deleteAssignment('c','삭제');
+ assert.equal(service.state.articles[0].campaignId,null);assert.equal(service.state.articles[0].draftHtml,'keep');
+ assert.equal(service.state.articles[0].detailLoaded,false);assert.deepEqual(service.state.photos,before.photos);
 });
