@@ -9,3 +9,6 @@ worker/.static/
 pridedesk/dist/
 pridedesk/.vercel/
 
+
+worker/test-results/
+worker/playwright-report/

@@ -38,7 +38,7 @@ test('every user-visible admin dropdown uses the accessible shared custom select
   assert.doesNotMatch(admin,/<select\b/i);
   assert.match(admin,/customSelect\('status-filter'/);assert.match(admin,/customSelect\('type-filter'/);
   assert.match(admin,/customSelect\('assignment-type'/);assert.match(admin,/customSelect\('assignment-status'/);
-  assert.match(admin,/customSelect\('issue-id'/);assert.match(admin,/customSelect\('slot-type'/);assert.match(admin,/customSelect\('status'/);assert.match(admin,/customSelect\('photo-status'/);
+  assert.match(admin,/customSelect\('issue-id'/);assert.match(admin,/customSelect\('slot-type'/);assert.match(admin,/customSelect\('review-status'/);assert.match(admin,/customSelect\('photo-status'/);
   assert.match(admin,/initSlotSelects\(\)/);assert.match(admin,/querySelectorAll\('\[data-photo-select\]'\)/);
   assert.match(ui,/type="hidden"/);assert.match(ui,/inputName/);assert.match(ui,/dispatchEvent\(new Event\('input'/);assert.match(ui,/dispatchEvent\(new Event\('change'/);
   assert.match(ui,/aria-haspopup="listbox"/);assert.match(ui,/aria-expanded/);assert.match(ui,/aria-selected/);assert.match(ui,/ArrowDown/);assert.match(ui,/ArrowUp/);assert.match(ui,/Home/);assert.match(ui,/End/);assert.match(ui,/Enter/);assert.match(ui,/Escape/);assert.match(ui,/Tab/);assert.match(ui,/pointerdown/);

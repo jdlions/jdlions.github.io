@@ -15,5 +15,6 @@ export const editorialFiles = [
   'assets/js/services/production-editorial-service.js',
   'assets/js/services/service-container.js',
   'assets/js/shared/shell.js',
-  'assets/js/shared/ui.js'
+  'assets/js/shared/ui.js',
+  'assets/js/shared/navigation.js'
 ];
