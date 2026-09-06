@@ -31,6 +31,7 @@ test('real FK schema: deleting linked submitted assignment preserves articles, r
  assert.deepEqual(await f.repo.assignmentDeletionSummary(f.campaign.id),{id:f.campaign.id,name:'과제',instanceCount:2,articleCount:1,submissionCount:1,mode:'preserve_articles'});
  const tables=['articles','article_revisions','article_feedback','photos'];
  const before=tables.map(t=>f.sql.prepare('SELECT * FROM '+t).all());
+ const unwritten=await f.repo.getAssignmentInstance(f.sql.prepare('SELECT id FROM assignment_slot_instances WHERE article_id IS NULL').get().id);
  await f.repo.deleteCampaign(f.campaign.id);
  assert.deepEqual(tables.map(t=>f.sql.prepare('SELECT * FROM '+t).all()),before);
  assert.equal((await f.repo.getNativeArticle(f.article.id)).campaignId,null);
@@ -38,7 +39,7 @@ test('real FK schema: deleting linked submitted assignment preserves articles, r
  for(const table of ['assignment_campaigns','assignment_slots','assignment_slot_instances','assignment_recipients','assignment_targets'])assert.equal(f.sql.prepare('SELECT COUNT(*) n FROM '+table).get().n,0);
  await assert.rejects(f.repo.deleteCampaign(f.campaign.id),e=>e.status===404);
  // A student holding a stale instance cannot create an orphan draft.
- await assert.rejects(f.repo.createArticleForAssignment({...f.instance,article_id:null},'student'),e=>e.status===404);
+ await assert.rejects(f.repo.createArticleForAssignment(unwritten,'student'),e=>e.status===404);
  assert.deepEqual(tables.map(t=>f.sql.prepare('SELECT * FROM '+t).all()),before);f.sql.close();
 });
 test('empty assignment deletion and transactional rollback',async()=>{
