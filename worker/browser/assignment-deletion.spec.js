@@ -33,6 +33,7 @@ for(const articles of [0,2])test('exact confirmation, cancel and one deletion wi
  await page.getByRole('button',{name:'취소',exact:true}).click();await expect(dialog).toHaveCount(0);expect(state.calls).toHaveLength(0);
  await page.locator('[data-delete-campaign]').click();await expect(input).toHaveValue('');await page.keyboard.press('Escape');expect(state.calls).toHaveLength(0);
  await page.locator('[data-delete-campaign]').click();await input.fill('삭제');
+ await expect(button).toBeEnabled();
  await dialog.locator('form').evaluate(form=>{for(let i=0;i<4;i++)form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));});
  await expect.poll(()=>state.calls.length).toBe(1);await expect(button).toBeDisabled();
  expect(state.calls[0]).toEqual({body:{confirmation:'삭제',mode:'preserve_articles'},csrf:'1'});
