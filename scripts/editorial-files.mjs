@@ -4,6 +4,7 @@ export const editorialFiles = [
   'cleanlogo.png',
   'assets/css/editorial.css',
   'assets/css/editorial-liquid-glass.css',
+  'assets/css/editorial-login.css',
   'assets/js/config.js',
   'assets/js/admin/admin-app.js',
   'assets/js/student/student-app.js',
