@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const css = await readFile(new URL('../../assets/css/editorial-liquid-glass.css', import.meta.url), 'utf8');
+const loginCss = await readFile(new URL('../../assets/css/editorial-login.css', import.meta.url), 'utf8');
 const login = await readFile(new URL('../../login/index.html', import.meta.url), 'utf8');
 const shell = await readFile(new URL('../../assets/js/shared/shell.js', import.meta.url), 'utf8');
 
@@ -35,4 +36,20 @@ test('responsive, reduced-motion, forced-colour and focus-visible states remain 
   assert.match(css, /@media\s*\(prefers-reduced-motion:\s*reduce\)/);
   assert.match(css, /@media\s*\(forced-colors:\s*active\)/);
   assert.match(css, /button:focus-visible[^}]*outline:3px solid var\(--gold-bright\)/);
+});
+
+test('login keeps PrideDesk auth content in a responsive hero and compact sign-in card', () => {
+  assert.match(login, /class="login-header"/);
+  assert.match(login, /class="login-layout"/);
+  assert.match(login, /class="login-hero"/);
+  assert.match(login, /class="login-card"/);
+  assert.match(login, /cleanlogo\.png/);
+  assert.match(login, /The Lion's Pride Editorial Workspace/);
+  assert.match(login, /data-google-login/);
+  assert.match(login, /assets\/js\/auth\/login-app\.js/);
+  assert.match(loginCss, /grid-template-columns:\s*minmax\(0, 1\.25fr\) minmax\(360px, \.75fr\)/);
+  assert.match(loginCss, /@media \(max-width: 900px\)[\s\S]*grid-template-columns:\s*1fr/);
+  assert.match(loginCss, /#07080f/);
+  assert.match(loginCss, /#0c0d18/);
+  assert.doesNotMatch(loginCss, /cyan|purple|#00ffff|#0ff\b/i);
 });
