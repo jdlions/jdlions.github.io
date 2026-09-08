@@ -159,3 +159,20 @@ test('assignment deletion clears cached links but preserves article and photo co
  assert.equal(service.state.articles[0].campaignId,null);assert.equal(service.state.articles[0].draftHtml,'keep');
  assert.equal(service.state.articles[0].detailLoaded,false);assert.deepEqual(service.state.photos,before.photos);
 });
+
+test('native deletion clears only selected article caches after success; failure preserves state',async()=>{
+ let fail=true;
+ const service=ProductionEditorialService.empty({role:'admin'},async(path,options)=>{
+   assert.equal(path,'/api/native/articles/a');assert.equal(options.method,'DELETE');assert.deepEqual(JSON.parse(options.body),{confirmation:'삭제'});
+   if(fail)throw new Error('failed');return {id:'a',deleted:true};
+ });
+ service.state.articles=[{id:'a'},{id:'b'}];service.state.photos=[{id:'pa',article_id:'a'},{id:'pb',article_id:'b'}];
+ service.state.assignments=[{id:'i',articleId:'a',articleStatus:'submitted'},{id:'j',articleId:'b'}];
+ service.state.campaigns=[{id:'c'}];service.state.students=[{id:'s'}];
+ const before=structuredClone(service.state);
+ await assert.rejects(service.deleteNativeArticle('a','삭제'));assert.deepEqual(service.state,before);
+ fail=false;await service.deleteNativeArticle('a','삭제');
+ assert.deepEqual(service.state.articles,[{id:'b'}]);assert.deepEqual(service.state.photos,[{id:'pb',article_id:'b'}]);
+ assert.equal(service.state.assignments[0].articleId,null);assert.deepEqual(service.state.assignments[1],before.assignments[1]);
+ assert.deepEqual(service.state.campaigns,before.campaigns);assert.deepEqual(service.state.students,before.students);
+});

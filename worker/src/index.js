@@ -184,6 +184,12 @@ async function routeApi(request, env, pathname) {
   if(pathname==='/api/native/articles'&&request.method==='GET')return ok((await repo.listNativeArticles(viewer.role==='student'?viewer.studentId:null)).map(x=>nativeForViewer(x,viewer)),env);
   if(pathname==='/api/native/articles'&&request.method==='POST'){requireStudent(viewer);const input=validateNativeDraft(await request.json());return ok(await repo.createNativeArticle(input,viewer.studentId),env,201);}
   const nativeArticle=pathname.match(/^\/api\/native\/articles\/([^/]+)$/);
+  if(nativeArticle&&request.method==='DELETE'){
+    requireAdmin(viewer);
+    const input=await request.json();
+    if(input?.confirmation!=='삭제')throw Object.assign(new Error('Type 삭제 exactly to delete this article.'),{status:400,code:'invalid_confirmation'});
+    return ok(await repo.deleteNativeArticle(nativeArticle[1]),env);
+  }
   if(nativeArticle&&request.method==='GET'){const found=await repo.getNativeArticle(nativeArticle[1]);if(!found||!canViewNativeArticle(found,viewer))throw Object.assign(new Error('Article not found.'),{status:404,code:'article_not_found'});return ok({...nativeForViewer(found,viewer),revisions:await repo.listRevisions(found.id)},env);}
   if(nativeArticle&&request.method==='PATCH'){requireStudent(viewer);const found=await repo.getNativeArticle(nativeArticle[1]);if(!found||found.studentId!==viewer.studentId)throw Object.assign(new Error('Article not found.'),{status:404,code:'article_not_found'});ensureAssignmentWritable(found.assignmentInstanceId&&await repo.getAssignmentInstance(found.assignmentInstanceId));if(!editableByStudent(found))throw Object.assign(new Error('Submitted articles are locked until revision is requested.'),{status:409,code:'article_locked'});const draft=validateNativeDraft(await request.json());if(found.assignmentSlotId)draft.articleType=found.articleType;return ok(await repo.saveStudentDraft(found.id,draft),env);}
   const nativeSubmit=pathname.match(/^\/api\/native\/articles\/([^/]+)\/submit$/);
