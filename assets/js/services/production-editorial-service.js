@@ -56,6 +56,13 @@ export class ProductionEditorialService {
   async createAssignment(input){const campaign=await this.request('/api/assignments',{method:'POST',body:JSON.stringify(input)});this.state.campaigns.unshift(campaign);return structuredClone(campaign);}
   async updateAssignment(id,input){const campaign=await this.request(`/api/assignments/${encodeURIComponent(id)}`,{method:'PATCH',body:JSON.stringify(input)});Object.assign(this.state.campaigns.find(x=>x.id===id),campaign);return campaign;}
   async assignmentDeletionSummary(id){return this.request('/api/assignments/'+encodeURIComponent(id)+'/deletion-summary');}
+  async deleteNativeArticle(id,confirmation){
+    const result=await this.request(`/api/native/articles/${encodeURIComponent(id)}`,{method:'DELETE',body:JSON.stringify({confirmation})});
+    this.state.articles=this.state.articles.filter(x=>x.id!==id);
+    this.state.photos=this.state.photos.filter(x=>(x.articleId??x.article_id??x.articleSubmissionId)!==id);
+    for(const instance of this.state.assignments)if(instance.articleId===id)Object.assign(instance,{articleId:null,articleStatus:null,articleUpdatedAt:null});
+    return result;
+  }
   async deleteAssignment(id,confirmation){const result=await this.request(`/api/assignments/${encodeURIComponent(id)}`,{method:'DELETE',body:JSON.stringify({confirmation,mode:'preserve_articles'})});for(const article of this.state.articles){if(article.campaignId===id||this.state.assignments.some(x=>x.campaignId===id&&x.articleId===article.id)){Object.assign(article,{campaignId:null,assignmentInstanceId:null,assignmentSlotId:null,assignmentName:'',slotName:'',assignmentDueAt:null,slotDueAt:null,detailLoaded:false});}}this.state.campaigns=this.state.campaigns.filter(x=>x.id!==id);this.state.assignments=this.state.assignments.filter(x=>x.campaignId!==id);return result;}
   async distributeAssignment(id,input){const campaign=await this.request(`/api/assignments/${encodeURIComponent(id)}/distribute`,{method:'POST',body:JSON.stringify(input)});Object.assign(this.state.campaigns.find(x=>x.id===id),campaign);await this.refreshAssignments();return campaign;}
   async refreshAssignments(){const data=await this.request('/api/assignments');this.state.campaigns=data.campaigns||[];this.state.assignments=data.assignments||[];return data;}

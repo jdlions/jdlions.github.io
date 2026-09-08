@@ -22,6 +22,19 @@ export class D1EditorialRepository {
   articleSelect(){return `SELECT a.*,f.student_feedback,f.internal_note,asi.id assignment_instance_id,asi.slot_id assignment_slot_id,asi.campaign_id,c.name assignment_name,s.display_name slot_name,c.due_at assignment_due_at,s.due_at slot_due_at FROM articles a LEFT JOIN article_feedback f ON f.article_id=a.id LEFT JOIN assignment_slot_instances asi ON asi.article_id=a.id LEFT JOIN assignment_campaigns c ON c.id=asi.campaign_id LEFT JOIN assignment_slots s ON s.id=asi.slot_id`;}
   async listNativeArticles(studentId) { let q=this.articleSelect(); const args=[]; if(studentId){q+=' WHERE a.student_id=?';args.push(studentId);} q+=' ORDER BY a.updated_at DESC'; return (await this.db.prepare(q).bind(...args).all()).results.map(parseNativeArticle); }
   async getNativeArticle(id) { return parseNativeArticle(await this.db.prepare(`${this.articleSelect()} WHERE a.id=?`).bind(id).first()); }
+  async deleteNativeArticle(id) {
+    if(!await this.getNativeArticle(id))throw Object.assign(new Error('Article not found.'),{status:404,code:'article_not_found'});
+    // Atomic deletion; preserve assignment rows and all external Drive files.
+    // Legacy article_edits belong to Classroom submissions, not native articles.
+    await this.db.batch([
+      this.db.prepare('UPDATE assignment_slot_instances SET article_id=NULL WHERE article_id=?').bind(id),
+      this.db.prepare('DELETE FROM photos WHERE article_id=?').bind(id),
+      this.db.prepare('DELETE FROM article_feedback WHERE article_id=?').bind(id),
+      this.db.prepare('DELETE FROM article_revisions WHERE article_id=?').bind(id),
+      this.db.prepare('DELETE FROM articles WHERE id=?').bind(id)
+    ]);
+    return {id,deleted:true};
+  }
   async createNativeArticle(input, studentId) { const id=crypto.randomUUID(),timestamp=now(); await this.db.prepare(`INSERT INTO articles(id,issue_id,student_id,article_type,title_ko,title_en,status,draft_html,created_at,updated_at) VALUES(?,?,?,?,?,?,'draft',?,?,?)`).bind(id,input.issueId||null,studentId,input.articleType,input.titleKo,input.titleEn,input.contentHtml||'',timestamp,timestamp).run(); return this.getNativeArticle(id); }
   async saveStudentDraft(id,input) { await this.db.prepare(`UPDATE articles SET article_type=?,title_ko=?,title_en=?,draft_html=?,updated_at=? WHERE id=?`).bind(input.articleType,input.titleKo,input.titleEn,input.contentHtml,now(),id).run(); return this.getNativeArticle(id); }
   async importStudentDraft(article,contentHtml,actorId) { const revisionId=await this.addRevision(article,actorId,'student','import',contentHtml);await this.db.prepare(`UPDATE articles SET draft_html=?,current_student_revision_id=?,updated_at=? WHERE id=?`).bind(contentHtml,revisionId,now(),article.id).run();return this.getNativeArticle(article.id); }
