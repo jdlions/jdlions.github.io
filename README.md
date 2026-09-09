@@ -65,16 +65,13 @@ Drive 업로드가 성공한 뒤에만 D1 사진 metadata를 생성합니다. D1
 
 ### 공개 Archive 발행
 
-관리자 발행 화면은 최종 Drive URL의 **미리보기만** 제공합니다. Worker/D1 저장만으로 GitHub Pages의 `data/issues.json`은 갱신되지 않으므로 브라우저에는 실제 발행 버튼이 없습니다.
+PrideDesk 관리자 → **신문 발행**에서 Drive PDF 링크, 호수 번호, 연도, 계절, 제목을 입력하고 미리보기와 PDF 공유 상태를 확인한 뒤 **발행**합니다. 최신 호수 다음 번호를 자동 추천하며 직접 조정할 수 있습니다.
 
-정식 발행 절차:
+기존 `data/issues.json`은 보존된 아카이브 기준 목록입니다. 새 발행은 기존 Worker 인증·관리자 권한·CSRF 검사를 거쳐 D1 `issue_publications`에 저장합니다. GitHub Pages는 공개 읽기 API를 통해 새 호수를 기준 목록 위에 표시하므로, 호수별 GitHub 수정이나 재배포가 필요하지 않습니다. API 장애 시 기준 JSON, JSON 장애 시 기존 HTML을 유지합니다.
 
-1. 최종 PDF의 공유 범위를 학교 정책에 맞게 확인합니다.
-2. 새 브랜치에서 `data/issues.json`에 다음 Issue 번호·표시 날짜·Drive URL을 추가합니다.
-3. `python scripts/validate.py`를 실행합니다.
-4. PR에서 링크, 번호 순서, 개인정보 부재를 검토한 뒤 merge합니다.
+Drive 링크는 형식 검증과 canonical URL 정규화를 수행합니다. 파일 내용·존재·공개 권한은 자동 검증하지 않으므로 관리자가 PDF 미리보기와 로그아웃 상태의 접근을 확인해야 합니다. 기존 Drive 파일이나 공유 권한은 변경하지 않습니다. GitHub 쓰기 토큰과 추가 Google OAuth 권한도 필요하지 않습니다.
 
-GitHub write token을 프런트엔드나 Worker에 넣지 마세요. 향후 자동화가 필요하면 GitHub Actions의 보호된 환경, 최소 권한 토큰, 승인 단계가 있는 별도 발행 workflow로 구현합니다.
+초기 migration/배포 순서, API, 중복 방지와 조사 결과는 [신문 발행 운영 문서](docs/issue-publishing.md)를 참조하세요.
 
 ## Worker 설정과 배포
 

@@ -8,7 +8,7 @@ for name in required:
  if not (root/name).is_file(): errors.append(f'missing {name}')
 issues=json.loads((root/'data/issues.json').read_text(encoding='utf-8'))
 if len(issues)!=18: errors.append(f'expected 18 public issues, got {len(issues)}')
-if sorted(i['number'] for i in issues)!=list(range(16,34)): errors.append('archive issue numbers are not No.16–No.33')
+if sorted(i['number'] for i in issues)!=list(range(16,33))+[34]: errors.append('archive issue numbers are not No.16–No.32 and No.34')
 for i in issues:
  if not i['url'].startswith('https://drive.google.com/'): errors.append(f'invalid archive URL: {i["label"]}')
 index=(root/'index.html').read_text(encoding='utf-8')

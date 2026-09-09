@@ -93,5 +93,6 @@ export class ProductionEditorialService {
 
   reset(){throw new Error('Production data cannot be reset from the browser.');}
   async updatePhotoStatus(id,status){const saved=normalizePhoto(await this.request(`/api/photos/${encodeURIComponent(id)}/status`,{method:'PATCH',body:JSON.stringify({status})}));const row=this.state.photos.find(x=>x.id===id);if(row)Object.assign(row,saved);return saved;}
-  publishIssue(){throw new Error('Publication remains a separately governed workflow.');}
+  async listPublications(){return this.request('/api/publications');}
+  async publishIssue(input,key){return this.request('/api/publications',{method:'POST',headers:{'Idempotency-Key':key},body:JSON.stringify(input)});}
 }
