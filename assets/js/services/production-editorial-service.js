@@ -40,11 +40,11 @@ export class ProductionEditorialService {
   async getArticleDetail(id){
     const row=this.state.articles.find(x=>x.id===id);if(!row)throw new Error('Article submission not found.');
     if(row.detailLoaded)return structuredClone(row);
-    if(row.native){const detail=await this.request(`/api/native/articles/${encodeURIComponent(id)}`);Object.assign(row,this.normalizeArticle(detail),{...detail,detailLoaded:true});return structuredClone(row);}
+    if(row.native){const detail=await this.request(`/api/native/articles/${encodeURIComponent(id)}`);Object.assign(row,this.normalizeArticle({...detail,native:true}),{detailLoaded:true});return structuredClone(row);}
     if(!this.detailRequests.has(id)){Object.assign(row,{detailLoading:true,detailError:null});this.detailRequests.set(id,this.request(`/api/articles/${encodeURIComponent(id)}?issueId=${encodeURIComponent(row.issueId)}`).then(detail=>{Object.assign(row,this.normalizeArticle(detail),{detailLoaded:true,detailLoading:false,detailError:null});return row;}).catch(error=>{Object.assign(row,{detailLoading:false,detailError:error.message||'Article detail could not be loaded.'});throw error;}).finally(()=>this.detailRequests.delete(id)));}
     return structuredClone(await this.detailRequests.get(id));
   }
-  async refreshArticleDetail(id){const row=this.state.articles.find(x=>x.id===id);if(!row)throw new Error('Article not found.');const detail=await this.request(`/api/native/articles/${encodeURIComponent(id)}`);Object.assign(row,this.normalizeArticle(detail),{...detail,detailLoaded:true});return structuredClone(row);}
+  async refreshArticleDetail(id){const row=this.state.articles.find(x=>x.id===id);if(!row)throw new Error('Article not found.');const detail=await this.request(`/api/native/articles/${encodeURIComponent(id)}`);Object.assign(row,this.normalizeArticle({...detail,native:true}),{detailLoaded:true});return structuredClone(row);}
   getState(){return structuredClone(this.state);}
   getActiveIssue(){return structuredClone(this.state.issues.find(x=>x.status==='active')||null);}
   listCampaigns(){return structuredClone(this.state.campaigns);}
@@ -67,10 +67,10 @@ export class ProductionEditorialService {
   async distributeAssignment(id,input){const campaign=await this.request(`/api/assignments/${encodeURIComponent(id)}/distribute`,{method:'POST',body:JSON.stringify(input)});Object.assign(this.state.campaigns.find(x=>x.id===id),campaign);await this.refreshAssignments();return campaign;}
   async refreshAssignments(){const data=await this.request('/api/assignments');this.state.campaigns=data.campaigns||[];this.state.assignments=data.assignments||[];return data;}
   async openAssignmentArticle(instanceId){const saved={...this.normalizeArticle(await this.request(`/api/assignments/instances/${encodeURIComponent(instanceId)}/article`,{method:'POST'})),native:true};const existing=this.state.articles.find(x=>x.id===saved.id);if(existing)Object.assign(existing,saved);else this.state.articles.unshift(saved);const instance=this.state.assignments.find(x=>x.id===instanceId);if(instance){instance.articleId=saved.id;instance.articleStatus=saved.status;}return structuredClone(saved);}
-  async saveNativeDraft(id,input){const saved=this.normalizeArticle(await this.request(`/api/native/articles/${encodeURIComponent(id)}`,{method:'PATCH',body:JSON.stringify(input)}));Object.assign(this.state.articles.find(x=>x.id===id),saved);return saved;}
+  async saveNativeDraft(id,input){const saved={...this.normalizeArticle(await this.request(`/api/native/articles/${encodeURIComponent(id)}`,{method:'PATCH',body:JSON.stringify(input)})),native:true};Object.assign(this.state.articles.find(x=>x.id===id),saved);return saved;}
   async submitNativeArticle(id){await this.request(`/api/native/articles/${encodeURIComponent(id)}/submit`,{method:'POST'});return this.refreshArticleDetail(id);}
   async importNativeArticle(id,file){const body=new FormData();body.append('file',file);await this.request(`/api/native/articles/${encodeURIComponent(id)}/import`,{method:'POST',body});return this.refreshArticleDetail(id);}
-  async saveNativeEditor(id,input){const saved=this.normalizeArticle(await this.request(`/api/native/articles/${encodeURIComponent(id)}/editor`,{method:'PATCH',body:JSON.stringify(input)}));Object.assign(this.state.articles.find(x=>x.id===id),saved);return saved;}
+  async saveNativeEditor(id,input){const saved={...this.normalizeArticle(await this.request(`/api/native/articles/${encodeURIComponent(id)}/editor`,{method:'PATCH',body:JSON.stringify(input)})),native:true};Object.assign(this.state.articles.find(x=>x.id===id),saved);return saved;}
   async setNativeStatus(id,status){await this.request(`/api/native/articles/${encodeURIComponent(id)}/status`,{method:'PATCH',body:JSON.stringify({status})});return this.refreshArticleDetail(id);}
   async submitPhotos(input,files){
     if(this.photoUploadPending)throw new Error('Photo upload is already in progress.');

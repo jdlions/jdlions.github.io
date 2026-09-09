@@ -176,3 +176,28 @@ test('native deletion clears only selected article caches after success; failure
  assert.equal(service.state.assignments[0].articleId,null);assert.deepEqual(service.state.assignments[1],before.assignments[1]);
  assert.deepEqual(service.state.campaigns,before.campaigns);assert.deepEqual(service.state.students,before.students);
 });
+
+test('native API responses retain article identity through detail, save and refresh flows',async()=>{
+ const article={id:'feature-1',studentId:'student-1',articleType:'feature',titleKo:'피처기사',draftHtml:'body',status:'draft'};
+ const actions=[
+  service=>service.getArticleDetail(article.id),
+  service=>service.refreshArticleDetail(article.id),
+  service=>service.saveNativeDraft(article.id,{contentHtml:'draft'}),
+  service=>service.saveNativeEditor(article.id,{contentHtml:'editor'}),
+  service=>service.setNativeStatus(article.id,'approved'),
+  service=>service.submitNativeArticle(article.id),
+  service=>service.importNativeArticle(article.id,new File(['body'],'article.txt',{type:'text/plain'}))
+ ];
+ for(const action of actions){
+  const calls=[];
+  const service=ProductionEditorialService.empty({role:'admin'},async path=>{calls.push(path);assert.match(path,/^\/api\/native\/articles\/feature-1/);return structuredClone(article);});
+  service.state.articles=[{...article,native:true}];
+  const saved=await action(service);
+  assert.equal(saved.native,true,'returned native identity must survive '+action);
+  assert.equal(service.listArticles()[0].native,true,'cached identity must survive '+action);
+  service.state.articles[0].detailLoaded=false;
+  await service.getArticleDetail(article.id);
+  assert.equal(calls.at(-1),'/api/native/articles/feature-1');
+  assert.equal(service.normalizeArticle({id:'legacy-1'}).native,false,'do not reclassify legacy records');
+ }
+});
