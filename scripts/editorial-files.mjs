@@ -3,10 +3,12 @@
 export const editorialFiles = [
   'cleanlogo.png',
   'assets/css/editorial.css',
+  'assets/css/issue-publishing.css',
   'assets/css/editorial-liquid-glass.css',
   'assets/css/editorial-login.css',
   'assets/js/config.js',
   'assets/js/admin/admin-app.js',
+  'assets/js/admin/issue-publishing.js',
   'assets/js/student/student-app.js',
   'assets/js/auth/auth-service.js',
   'assets/js/auth/login-app.js',
@@ -17,5 +19,6 @@ export const editorialFiles = [
   'assets/js/services/service-container.js',
   'assets/js/shared/shell.js',
   'assets/js/shared/ui.js',
-  'assets/js/shared/navigation.js'
+  'assets/js/shared/navigation.js',
+  'assets/js/shared/issue-publication.js'
 ];

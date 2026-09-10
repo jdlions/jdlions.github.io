@@ -3,6 +3,7 @@ import { classroom, deleteDriveFile, driveFolderPreflight, exchangeCode, resolve
 import { repository } from './repository.js';
 import { DOCX_MIME, MAX_DOCX_BYTES, parseDocx } from './docx.js';
 import { pridedeskRequest } from './pridedesk-proxy.js';
+import { IssuePublications, publicArchiveResponse } from './issue-publications.js';
 
 const SESSION_SECONDS = 45 * 60;
 const MEMBERSHIP_CACHE_MS = 5 * 60 * 1000;
@@ -170,6 +171,21 @@ async function routeApi(request, env, pathname) {
   if (pathname === '/api/session' && request.method === 'GET') return ok({ authenticated: true, user: { id: viewer.sub, name: viewer.name, email: viewer.email, role: viewer.role, studentId: viewer.studentId } }, env);
   if (pathname === '/api/classroom/students' && request.method === 'GET') { requireAdmin(viewer); return ok({students:await configuredRoster(env.NEWSPAPER_CLASSROOM_ID,viewer.accessToken)},env); }
   const repo = repository(env);
+  if (pathname === '/api/publications') {
+    requireAdmin(viewer);
+    const publications = new IssuePublications(env.DB);
+    if (request.method === 'GET') {
+      const issues = await publications.list();
+      return ok({ issues, nextNumber: Math.max(0, ...issues.map(x => x.number)) + 1 }, env);
+    }
+    if (request.method === 'POST') {
+      let input;
+      try { const body = await request.text(); if (body.length > 8192) throw new Error(); input = JSON.parse(body); }
+      catch { throw Object.assign(new Error('발행 요청 형식이 올바르지 않습니다.'), { status: 400, code: 'invalid_publication' }); }
+      const result = await publications.publish(input, request.headers.get('Idempotency-Key'), viewer.sub);
+      return ok(result, env, result.replayed ? 200 : 201);
+    }
+  }
   if(pathname==='/api/assignments'&&request.method==='GET')return ok({campaigns:await repo.listCampaigns(viewer.role==='student'?viewer.studentId:null),assignments:await repo.listAssignments(viewer.role==='student'?viewer.studentId:null)},env);
   if(pathname==='/api/assignments'&&request.method==='POST'){requireAdmin(viewer);return ok(await repo.createCampaign(validateCampaign(await request.json()),viewer.sub),env,201);}
   const assignmentUpdate=pathname.match(/^\/api\/assignments\/([^/]+)$/);
@@ -217,6 +233,7 @@ export default {
     try {
       ({ request, env } = pridedeskRequest(request, env));
       const url = new URL(request.url);
+      if (url.pathname === '/api/public/issues') return await publicArchiveResponse(request, env);
       if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors(env) });
       if (url.pathname === '/auth/login' && request.method === 'GET') return await login(request, env);
       if (url.pathname === '/auth/callback' && request.method === 'GET') return await callback(request, env);
