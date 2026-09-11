@@ -16,7 +16,7 @@ test('output contains only PrideDesk and all HTML/module dependencies resolve', 
     assert.doesNotMatch(source, /workers\.dev|\/editorial\//);
     const references = file.endsWith('.html')
       ? [...source.matchAll(/(?:href|src)="([^"]+)"/g)].map(match => match[1])
-      : file.endsWith('.js') ? [...source.matchAll(/(?:from\s*|import\s*)['"]([^'"]+)['"]/g)].map(match => match[1]) : [];
+      : file.endsWith('.js') ? [...source.matchAll(/(?:from\s*|import\s*)['"]([^'"]+)['"]/g)].map(match => match[1]) : [...source.matchAll(/url\(['"]?([^)'"]+)['"]?\)/g)].map(match=>match[1]);
     for (const reference of references.filter(value => value.startsWith('.'))) await access(resolve(dirname(path), reference));
   }
   for (const page of ['login', 'admin', 'student']) {
@@ -30,4 +30,15 @@ test('routes proxy API/auth only, preserve path and avoid global slash redirects
   assert.deepEqual(config.rewrites.map(rule => rule.source), ['/api/:path*', '/auth/:path*']);
   for (const rule of config.rewrites) assert.equal(new URL(rule.destination).pathname, `/pridedesk${rule.source}`);
   assert(config.headers[0].headers.some(header => header.key === 'Vercel-CDN-Cache-Control' && header.value === 'no-store'));
+});
+
+
+test('cache policy grants freshness only to the public static asset namespace',async()=>{
+  const config=JSON.parse(await readFile(resolve(root,'vercel.json'),'utf8'));
+  const cacheFor=path=>Object.fromEntries(config.headers.filter(rule=>rule.source==='/(.*)'||(rule.source==='/assets/:path*'&&path.startsWith('/assets/'))).flatMap(rule=>rule.headers.map(h=>[h.key,h.value])));
+  for(const path of ['/api/session','/api/native/articles','/api/photos/photo/content','/api/publications','/api/public/issues','/auth/login','/auth/callback','/auth/logout','/login/','/admin/','/student/']){
+    assert.equal(cacheFor(path)['Cache-Control'],'private, no-store');
+    assert.equal(cacheFor(path)['Vercel-CDN-Cache-Control'],'no-store');
+  }
+  for(const path of ['/assets/js/config.js','/assets/css/editorial.css','/assets/images/pridedesk-logo.webp'])assert.equal(cacheFor(path)['Cache-Control'],'public, max-age=3600, must-revalidate');
 });

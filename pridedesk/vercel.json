@@ -23,6 +23,11 @@
       { "key": "Cache-Control", "value": "private, no-store" },
       { "key": "CDN-Cache-Control", "value": "no-store" },
       { "key": "Vercel-CDN-Cache-Control", "value": "no-store" }
+    ] },
+    { "source": "/assets/:path*", "headers": [
+      { "key": "Cache-Control", "value": "public, max-age=3600, must-revalidate" },
+      { "key": "CDN-Cache-Control", "value": "public, max-age=3600, must-revalidate" },
+      { "key": "Vercel-CDN-Cache-Control", "value": "public, max-age=3600, must-revalidate" }
     ] }
   ]
 }

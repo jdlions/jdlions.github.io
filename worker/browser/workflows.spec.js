@@ -13,12 +13,12 @@ async function setup(page,role='admin'){
     else if(path==='/api/photos/upload'){uploads++;await new Promise(r=>releaseUpload=r);if(failUpload)return route.fulfill({status:500,json:{error:{message:'Upload failed'}}});data={id:'p1',filename:'photo.png'};}
     else if(path.endsWith('/editor')){if(failSave)return route.fulfill({status:500,json:{error:{message:'Save failed'}}});const input=req.postDataJSON();Object.assign(article,{titleKo:input.titleKo,editorDraftHtml:input.contentHtml,studentFeedback:input.studentFeedback});data=article;}
     else if(path.endsWith('/status')){article.status=req.postDataJSON().status;data=article;}
-    else if(path==='/api/native/articles/a1'){if(req.method()==='PATCH')Object.assign(article,req.postDataJSON());data=article;}
+    else if(path==='/api/native/articles/a1'){if(req.method()==='PATCH'){if(failSave)return route.fulfill({status:500,json:{error:{message:'Save failed'}}});const input=req.postDataJSON();Object.assign(article,input,{draftHtml:input.contentHtml});}data=article;}
     else throw new Error('Unexpected API '+path);
     await route.fulfill({json:data});
   });
   await page.goto('/'+role+'/');await expect(page.locator('[data-new], [data-status-filter]').first()).toBeAttached();
-  return {article,calls,fail:()=>failSave=true,failUpload:()=>failUpload=true,uploads:()=>uploads,release:()=>releaseUpload()};
+  return {article,calls,fail:()=>failSave=true,recover:()=>failSave=false,failUpload:()=>failUpload=true,uploads:()=>uploads,release:()=>releaseUpload()};
 }
 test('admin detail binds after a dashboard visit; saves and applies status with CSRF',async({page})=>{
   const state=await setup(page);await page.locator('[data-admin-view=articles]').click();await page.locator('[data-view=articles] [data-open]').click();
@@ -74,4 +74,53 @@ test('assignment filters escape panel clipping and open upward near viewport edg
   await trigger.evaluate(el=>window.scrollBy(0,el.getBoundingClientRect().bottom-innerHeight+40));
   await trigger.click();const menu=page.locator('[role=listbox]:visible');await expect(menu).toBeVisible();expect(await menu.evaluate(el=>el.parentElement===document.body)).toBe(true);expect(await menu.evaluate(el=>el.style.bottom)).not.toBe('auto');
   await page.keyboard.press('ArrowDown');await page.keyboard.press('Enter');await expect(menu).not.toBeVisible();
+});
+
+for(const tab of ['feedback','edited','history'])test('student preserves pending draft across '+tab+' tab',async({page})=>{
+  const state=await setup(page,'student');await page.locator('[data-open]').first().click();
+  await page.locator('[data-editor]').fill('Unsaved draft survives '+tab);
+  await page.locator('[data-field=titleKo]').fill('Updated title');
+  await page.locator('[data-tab='+tab+']').click();
+  await expect(page.locator('[data-tab='+tab+']')).toHaveClass(/is-active/);
+  await page.locator('[data-tab=mine]').click();
+  await expect(page.locator('[data-editor]')).toHaveText('Unsaved draft survives '+tab);
+  await expect(page.locator('[data-field=titleKo]')).toHaveValue('Updated title');
+  await page.locator('[data-editor]').fill('Continued writing');await page.locator('[data-save]').click();
+  await expect.poll(()=>state.article.draftHtml).toContain('Continued writing');
+});
+test('student failed tab save keeps editor and permits retry',async({page})=>{
+  const state=await setup(page,'student');await page.locator('[data-open]').first().click();state.fail();
+  await page.locator('[data-editor]').fill('Keep on failure');await page.locator('[data-tab=feedback]').click();
+  await expect(page.locator('[data-save-state]')).toContainText('저장 실패');await expect(page.locator('[data-editor]')).toHaveText('Keep on failure');
+  state.recover();await page.locator('[data-tab=feedback]').click();await expect(page.locator('[data-tab=feedback]')).toHaveClass(/is-active/);
+  await page.locator('[data-tab=mine]').click();await expect(page.locator('[data-editor]')).toHaveText('Keep on failure');
+});
+test('student sidebar navigation flushes a pending draft',async({page})=>{
+  const state=await setup(page,'student');await page.locator('[data-open]').first().click();
+  await page.locator('[data-editor]').fill('Before sidebar');await page.locator('[data-student-view=articles]').click();
+  await page.locator('[data-view=articles] [data-open]').click();await expect(page.locator('[data-editor]')).toHaveText('Before sidebar');
+  expect(state.article.draftHtml).toContain('Before sidebar');
+});
+
+test('student edits during an in-flight save survive tab transition without a stale timer',async({page})=>{
+  const state=await setup(page,'student');await page.locator('[data-open]').first().click();
+  let release,requests=0;
+  await page.route('**/api/native/articles/a1',async route=>{
+    if(route.request().method()!=='PATCH')return route.fallback();
+    const input=route.request().postDataJSON();requests++;
+    if(requests===1)await new Promise(resolve=>release=resolve);
+    Object.assign(state.article,input,{draftHtml:input.contentHtml});await route.fulfill({json:state.article});
+  });
+  const errors=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.locator('[data-editor]').fill('First snapshot');await page.locator('[data-tab=feedback]').click();
+  await expect.poll(()=>requests).toBe(1);await page.locator('[data-editor]').fill('Newer input during save');release();
+  await expect(page.locator('[data-tab=feedback]')).toHaveClass(/is-active/);expect(requests).toBe(2);
+  await page.clock.install();await page.clock.fastForward(1500);
+  await page.locator('[data-tab=mine]').click();await expect(page.locator('[data-editor]')).toHaveText('Newer input during save');
+  expect(state.article.draftHtml).toContain('Newer input during save');expect(errors).toEqual([]);
+});
+test('student browser back flushes input before autosave and forward restores it',async({page})=>{
+  await setup(page,'student');await page.locator('[data-open]').first().click();
+  await page.locator('[data-editor]').fill('Before browser back');await page.goBack();await expect(page.locator('[data-view=dashboard] [data-open]').first()).toBeVisible();
+  await page.goForward();await expect(page.locator('[data-editor]')).toHaveText('Before browser back');
 });

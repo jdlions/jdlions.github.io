@@ -8,8 +8,8 @@ const login = await readFile(new URL('../../login/index.html', import.meta.url),
 const shell = await readFile(new URL('../../assets/js/shared/shell.js', import.meta.url), 'utf8');
 
 test('editorial shell and login use the real club logo instead of a PD placeholder', () => {
-  assert.match(css, /cleanlogo\.png/);
-  assert.match(login, /cleanlogo\.png/);
+  assert.match(css, /pridedesk-logo\.webp/);
+  assert.match(login, /pridedesk-logo\.webp/);
   assert.doesNotMatch(login, />PD<\/span>/);
   assert.match(login, /editorial-liquid-glass\.css/);
   assert.match(shell, /editorial-liquid-glass\.css/);
@@ -43,7 +43,7 @@ test('login keeps PrideDesk auth content in a responsive hero and compact sign-i
   assert.match(login, /class="login-layout"/);
   assert.match(login, /class="login-hero"/);
   assert.match(login, /class="login-card"/);
-  assert.match(login, /cleanlogo\.png/);
+  assert.match(login, /pridedesk-logo\.webp/);
   assert.match(login, /The Lion's Pride Editorial Workspace/);
   assert.match(login, /data-google-login/);
   assert.match(login, /assets\/js\/auth\/login-app\.js/);
