@@ -19,6 +19,9 @@ export const editorialFiles = [
   'assets/js/services/production-editorial-service.js',
   'assets/js/services/service-container.js',
   'assets/js/shared/shell.js',
+  'assets/js/shared/request-timeout.js',
+  'assets/js/shared/view-loader.js',
+  'assets/js/shared/article-preview.js',
   'assets/js/shared/ui.js',
   'assets/js/shared/navigation.js',
   'assets/js/shared/issue-publication.js'

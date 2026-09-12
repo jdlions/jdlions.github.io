@@ -1,3 +1,5 @@
+import { fetchWithTimeout } from '../../assets/js/shared/request-timeout.js';
+const fetchGoogle=(url,init={})=>fetchWithTimeout(url,init,/\/upload\/|alt=media/.test(url)?120000:20000,()=>Object.assign(new Error('Google 응답 시간이 초과되었습니다. 결과를 확인한 뒤 다시 시도해 주세요.'),{status:504,code:'google_timeout'}));
 const GOOGLE_API = 'https://www.googleapis.com';
 const CLASSROOM_API = 'https://classroom.googleapis.com';
 
@@ -8,16 +10,18 @@ function googleErrorStatus(status) {
 }
 
 async function googleFetch(path, accessToken, init = {}) {
-  const response = await fetch(`${GOOGLE_API}${path}`, { ...init, headers: { Authorization: `Bearer ${accessToken}`, ...init.headers } });
+  const response = await fetchGoogle(`${GOOGLE_API}${path}`, { ...init, headers: { Authorization: `Bearer ${accessToken}`, ...init.headers } });
   if (!response.ok) {
+    await response.body?.cancel();
     throw Object.assign(new Error(`Google API request failed (${response.status}).`), { status: googleErrorStatus(response.status), code: 'google_api_error' });
   }
   return response.status === 204 ? null : response.json();
 }
 
 async function classroomFetch(path, accessToken, init = {}) {
-  const response = await fetch(`${CLASSROOM_API}${path}`, { ...init, headers: { Authorization: `Bearer ${accessToken}`, ...init.headers } });
+  const response = await fetchGoogle(`${CLASSROOM_API}${path}`, { ...init, headers: { Authorization: `Bearer ${accessToken}`, ...init.headers } });
   if (!response.ok) {
+    await response.body?.cancel();
     throw Object.assign(new Error(`Google Classroom API request failed (${response.status}).`), { status: googleErrorStatus(response.status), code: 'google_api_error' });
   }
   return response.status === 204 ? null : response.json();
@@ -25,7 +29,7 @@ async function classroomFetch(path, accessToken, init = {}) {
 
 export async function exchangeCode(code, env, verifier) {
   const body = new URLSearchParams({ code, client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET, redirect_uri: env.OAUTH_REDIRECT_URI, grant_type: 'authorization_code', code_verifier: verifier });
-  const response = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+  const response = await fetchGoogle('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
   if (!response.ok) throw Object.assign(new Error('Google OAuth token exchange failed.'), { status: 401, code: 'oauth_exchange_failed' });
   return response.json();
 }
@@ -64,7 +68,7 @@ export const classroom = {
 };
 
 export async function downloadDriveFile(fileId, token, maxBytes) {
-  const response = await fetch(`${GOOGLE_API}/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, { headers: { Authorization: `Bearer ${token}` } });
+  const response = await fetchGoogle(`${GOOGLE_API}/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, { headers: { Authorization: `Bearer ${token}` } });
   if (!response.ok) throw Object.assign(new Error(`Google Drive download failed (${response.status}).`), { status: googleErrorStatus(response.status), code: 'drive_download_error' });
   const declaredSize = Number(response.headers.get('content-length') || 0);
   if (declaredSize > maxBytes) throw Object.assign(new Error('Drive file exceeds the supported size limit.'), { status: 413, code: 'docx_oversize' });
@@ -77,14 +81,15 @@ const DRIVE_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
 export async function streamDriveImage(fileId, token) {
   const query = new URLSearchParams({ alt: 'media', supportsAllDrives: 'true' });
-  const response = await fetch(`${GOOGLE_API}/drive/v3/files/${encodeURIComponent(fileId)}?${query}`, { headers: { Authorization: `Bearer ${token}` } });
+  const response = await fetchGoogle(`${GOOGLE_API}/drive/v3/files/${encodeURIComponent(fileId)}?${query}`, { headers: { Authorization: `Bearer ${token}` } });
   if (!response.ok) {
+    await response.body?.cancel();
     const status = response.status === 404 ? 404 : response.status === 401 || response.status === 403 ? 403 : 502;
     throw Object.assign(new Error('Google Drive image could not be loaded.'), { status, code: status === 404 ? 'photo_content_not_found' : status === 403 ? 'photo_content_forbidden' : 'photo_content_unavailable' });
   }
   const contentType = String(response.headers.get('content-type') || '').split(';', 1)[0].trim().toLowerCase();
   if (!DRIVE_IMAGE_TYPES.has(contentType)) {
-    try { await response.body?.cancel(); } catch {}
+    try { await response.body?.cancel(); } catch (error) { if(error.code==='google_timeout')throw error; }
     throw Object.assign(new Error('Drive returned an unsupported image type.'), { status: 415, code: 'photo_content_type_blocked' });
   }
   return { body: response.body, contentType, contentLength: response.headers.get('content-length') };
@@ -118,7 +123,7 @@ function driveAppError(kind, upstreamStatus, reason = '') {
 export async function driveFolderPreflight(folderId, token) {
   if (!folderId) throw Object.assign(new Error('Drive upload folder is not configured.'), { status: 503, code: 'drive_folder_unconfigured' });
   const query = new URLSearchParams({ fields: 'id,name,mimeType,driveId,capabilities', supportsAllDrives: 'true' });
-  const response = await fetch(`${GOOGLE_API}/drive/v3/files/${encodeURIComponent(folderId)}?${query}`, { headers: { Authorization: `Bearer ${token}` } });
+  const response = await fetchGoogle(`${GOOGLE_API}/drive/v3/files/${encodeURIComponent(folderId)}?${query}`, { headers: { Authorization: `Bearer ${token}` } });
   if (!response.ok) { const safe = await safeDriveError(response); throw driveAppError('folder', safe.upstreamStatus, safe.reason); }
   const folder = await response.json();
   if (folder.mimeType !== DRIVE_FOLDER_MIME_TYPE) throw Object.assign(new Error('Configured Drive target is not a folder.'), { status: 503, code: 'drive_folder_not_accessible' });
@@ -132,12 +137,12 @@ export async function uploadToDrive(file, folderId, token) {
   const metadata = JSON.stringify({ name: file.name, parents: [folderId] });
   const body = new Blob([`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n--${boundary}\r\nContent-Type: ${file.type}\r\n\r\n`, file, `\r\n--${boundary}--`]);
   const query = new URLSearchParams({ uploadType: 'multipart', fields: 'id,name,mimeType,size', supportsAllDrives: 'true' });
-  const response = await fetch(`${GOOGLE_API}/upload/drive/v3/files?${query}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/related; boundary=${boundary}` }, body });
+  const response = await fetchGoogle(`${GOOGLE_API}/upload/drive/v3/files?${query}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/related; boundary=${boundary}` }, body });
   if (!response.ok) { const safe = await safeDriveError(response); throw driveAppError('upload', safe.upstreamStatus, safe.reason); }
   return response.json();
 }
 
 export async function deleteDriveFile(fileId, token) {
-  const response = await fetch(`${GOOGLE_API}/drive/v3/files/${encodeURIComponent(fileId)}?supportsAllDrives=true`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+  const response = await fetchGoogle(`${GOOGLE_API}/drive/v3/files/${encodeURIComponent(fileId)}?supportsAllDrives=true`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
   if (!response.ok && response.status !== 404) { const safe = await safeDriveError(response); throw driveAppError('delete', safe.upstreamStatus, safe.reason); }
 }
