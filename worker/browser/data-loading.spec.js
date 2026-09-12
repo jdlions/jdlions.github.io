@@ -1,3 +1,4 @@
+import {pageResponse} from './page-fixture.js';
 import {test,expect} from '@playwright/test';
 async function setup(page,role='admin',hold={}){
  const calls=[];const article={id:'a',studentId:'s',articleType:'school',titleKo:'Summary title',status:'draft',draftPreview:'Preview without full body',wordCount:42,updatedAt:'2026-09-01T00:00:00Z'};
@@ -5,7 +6,7 @@ async function setup(page,role='admin',hold={}){
   const path=new URL(route.request().url()).pathname;calls.push(path);
   if(hold[path])return hold[path](route);
   const data=path==='/api/session'?{authenticated:true,user:{role,studentId:'s',name:'Test'}}:path==='/api/native/articles'?[article]:path==='/api/native/articles/a'?{...article,draftHtml:'<p>Full detail</p>',studentFeedback:'Feedback',revisions:[]}:path==='/api/assignments'?{campaigns:[],assignments:[]}:path==='/api/classroom/students'?{students:[{id:'s',name:'Student'}]}:path==='/api/publications'?{issues:[],nextNumber:35}:[];
-  await route.fulfill({json:data});
+  await route.fulfill({json:path==='/api/native/articles'&&Array.isArray(data)?pageResponse(data):data});
  });
  await page.goto('/'+role+'/');return calls;
 }
@@ -21,7 +22,7 @@ test('student article renders while assignment is pending; late response never r
  await page.locator('[data-open]').click();await expect(page.locator('[data-editor]')).toHaveText('Full detail');await release();await expect(page.locator('[data-editor]')).toHaveText('Full detail');
 });
 test('failed article API does not block publications and retries only its own dataset',async({page})=>{
- let fail=true;const calls=await setup(page,'admin',{'/api/native/articles':r=>r.fulfill(fail?{status:503,json:{error:{message:'Article unavailable'}}}:{json:[]})});
+ let fail=true;const calls=await setup(page,'admin',{'/api/native/articles':r=>r.fulfill(fail?{status:503,json:{error:{message:'Article unavailable'}}}:{json:pageResponse([])})});
  await expect(page.locator('[data-retry-startup]')).toBeVisible();await page.locator('[data-admin-view=publications]').click();await expect(page.locator('[data-publication-form]')).toBeVisible();
  fail=false;await page.locator('[data-admin-view=articles]').click();await expect(page.locator('.queue-tools')).toBeVisible();expect(calls.filter(x=>x==='/api/native/articles')).toHaveLength(2);expect(calls).not.toContain('/api/assignments');
 });

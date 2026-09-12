@@ -1,4 +1,5 @@
 import { clearCookie, cookie, randomToken, requireTrustedOrigin, sanitizeHtml, seal, setCookie, STATE_COOKIE, SESSION_COOKIE, unseal } from './security.js';
+import {articleListOptions,listArticlePage} from './article-list.js';
 import { classroom, deleteDriveFile, driveFolderPreflight, exchangeCode, resolveMembership, streamDriveImage, uploadToDrive, userInfo } from './google.js';
 import { repository } from './repository.js';
 import { DOCX_MIME, MAX_DOCX_BYTES, parseDocx } from './docx.js';
@@ -72,7 +73,7 @@ export function assignmentArticleInstanceId(pathname){
 // Student responses use an explicit public field list so new staff-only fields fail closed.
 function nativeForViewer(article,viewer){
   if(viewer.role==='admin'||!article)return article;
-  const fields=['id','issueId','studentId','articleType','titleKo','titleEn','status','draftHtml','editorDraftHtml','currentStudentRevisionId','currentEditorRevisionId','createdAt','updatedAt','submittedAt','studentFeedback','assignmentInstanceId','assignmentSlotId','campaignId','assignmentName','slotName','assignmentDueAt','slotDueAt','draftPreview','wordCount'];
+  const fields=['id','issueId','studentId','articleType','titleKo','titleEn','status','draftHtml','editorDraftHtml','currentStudentRevisionId','currentEditorRevisionId','createdAt','updatedAt','submittedAt','studentFeedback','assignmentInstanceId','assignmentSlotId','campaignId','assignmentName','slotName','assignmentDueAt','slotDueAt','draftPreview','wordCount','authorName'];
   return Object.fromEntries(fields.filter(key=>Object.hasOwn(article,key)).map(key=>[key,article[key]]));
 }
 const escapeText = value => String(value || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -202,7 +203,15 @@ async function routeApi(request, env, pathname) {
   if(distribute&&request.method==='POST'){requireAdmin(viewer);const campaign=await repo.getCampaign(distribute[1]);if(!campaign)throw Object.assign(new Error('Assignment not found.'),{status:404,code:'assignment_not_found'});if(campaign.status==='closed')throw Object.assign(new Error('Closed assignments cannot be distributed.'),{status:409,code:'assignment_closed'});const input=await request.json(),roster=await configuredRoster(env.NEWSPAPER_CLASSROOM_ID,viewer.accessToken),selected=new Set((input.studentIds?.length?input.studentIds:campaign.recipientStudentIds||[]).map(String)),students=(input.audienceMode||campaign.audienceMode)==='all'?roster:roster.filter(student=>selected.has(student.id));if(!students.length)throw Object.assign(new Error('Select at least one student.'),{status:400,code:'assignment_recipients_required'});return ok(await repo.distributeCampaign(campaign,students),env);}
   const assignmentInstanceId=assignmentArticleInstanceId(pathname);
   if(assignmentInstanceId&&request.method==='POST'){requireStudent(viewer);const instance=await repo.getAssignmentInstance(assignmentInstanceId);if(!instance||instance.student_id!==viewer.studentId)throw Object.assign(new Error('Assignment slot not found.'),{status:404,code:'assignment_not_found'});if(instance.article_id)return ok(nativeForViewer(await repo.getNativeArticle(instance.article_id),viewer),env);ensureAssignmentWritable(instance);return ok(nativeForViewer(await repo.createArticleForAssignment(instance,viewer.studentId),viewer),env,201);}
-  if(pathname==='/api/native/articles'&&request.method==='GET')return ok((await repo.listNativeArticles(viewer.role==='student'?viewer.studentId:null,new URL(request.url).searchParams.get('summary')==='1')).map(x=>nativeForViewer(x,viewer)),env);
+  if(pathname==='/api/native/articles'&&request.method==='GET'){
+    const params=new URL(request.url).searchParams,studentId=viewer.role==='student'?viewer.studentId:null;
+    if(['page','limit','cursor','q','author','status','type','campaign','date','picker','stats'].some(key=>params.has(key))){
+      if(params.has('page')&&params.get('page')!=='1')throw Object.assign(new Error('Use the next cursor for pagination.'),{status:400,code:'invalid_article_query'});
+      const result=await listArticlePage(repo.db,articleListOptions(params,studentId),studentId);
+      return ok({...result,items:result.items.map(x=>nativeForViewer(x,viewer))},env);
+    }
+    return ok((await repo.listNativeArticles(studentId,params.get('summary')==='1')).map(x=>nativeForViewer(x,viewer)),env);
+  }
   if(pathname==='/api/native/articles'&&request.method==='POST'){requireStudent(viewer);const input=validateNativeDraft(await request.json());return ok(nativeForViewer(await repo.createNativeArticle(input,viewer.studentId),viewer),env,201);}
   const nativeArticle=pathname.match(/^\/api\/native\/articles\/([^/]+)$/);
   if(nativeArticle&&request.method==='DELETE'){

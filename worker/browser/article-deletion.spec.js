@@ -1,6 +1,7 @@
+import {pageResponse} from './page-fixture.js';
 import {test,expect} from '@playwright/test';
 async function setup(page,{status='draft',fail=false}={}){
- const calls=[];let release;
+ const calls=[];let release,deleted=false;
  await page.route('**/api/**',async route=>{
   const req=route.request(),path=new URL(req.url()).pathname;let data={};
   if(path==='/api/session')data={authenticated:true,user:{role:'admin',name:'Teacher'}};
@@ -11,9 +12,9 @@ async function setup(page,{status='draft',fail=false}={}){
   else if(path==='/api/native/articles/a'&&req.method()==='DELETE'){
    calls.push({body:req.postDataJSON(),csrf:req.headers()['x-editorial-csrf']});
    if(fail)return route.fulfill({status:500,json:{error:{message:'삭제 실패'}}});
-   await new Promise(resolve=>release=resolve);data={id:'a',deleted:true};
+   await new Promise(resolve=>release=resolve);deleted=true;data={id:'a',deleted:true};
   }else throw new Error('Unexpected request '+req.method()+' '+path);
-  await route.fulfill({json:data});
+  await route.fulfill({json:path==='/api/native/articles'&&Array.isArray(data)?pageResponse(deleted?data.filter(x=>x.id!=='a'):data):data});
  });
  await page.goto('/admin/#view=articles');
  await page.locator('[data-delete-article=a]').click();
@@ -49,19 +50,19 @@ test('feature article keeps delete button after open, editor save, status change
  // Native Worker responses do not include the frontend-only native flag.
  const feature={id:'feature-1',studentId:'student',titleKo:'피처기사',titleEn:'Feature',articleType:'feature',status:'submitted',draftHtml:'<p>Feature body</p>',submittedAt:'2026-09-08T00:00:00Z',revisions:[]};
  const other={...feature,id:'school-1',titleKo:'보존 기사',articleType:'school'};
- const calls=[];
+ const calls=[];let deleted=false;
  await page.route('**/api/**',async route=>{
   const req=route.request(),path=new URL(req.url()).pathname;calls.push({path,method:req.method(),body:req.postData()});let data;
   if(path==='/api/session')data={authenticated:true,user:{role:'admin',name:'Teacher'}};
-  else if(path==='/api/native/articles')data=[feature,other];
+  else if(path==='/api/native/articles')data=deleted?[other]:[feature,other];
   else if(path==='/api/photos')data=[];
   else if(path==='/api/assignments')data={campaigns:[],assignments:[]};
   else if(path==='/api/classroom/students')data={students:[]};
   else if(path==='/api/native/articles/feature-1/editor'){Object.assign(feature,{editorDraftHtml:req.postDataJSON().contentHtml});data=feature;}
   else if(path==='/api/native/articles/feature-1/status'){feature.status=req.postDataJSON().status;data=feature;}
-  else if(path==='/api/native/articles/feature-1')data=req.method()==='DELETE'?{id:feature.id,deleted:true}:feature;
+  else if(path==='/api/native/articles/feature-1'){if(req.method()==='DELETE')deleted=true;data=deleted?{id:feature.id,deleted:true}:feature;}
   else throw new Error('Unexpected API '+path);
-  await route.fulfill({json:data});
+  await route.fulfill({json:path==='/api/native/articles'&&Array.isArray(data)?pageResponse(data):data});
  });
  await page.goto('/admin/#view=articles');
  await expect(page.locator('[data-delete-article=feature-1]')).toBeVisible();

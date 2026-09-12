@@ -41,7 +41,7 @@ test('photo gallery uses authenticated lazy-loaded image URLs',async()=>{
 
 test('native student submit and admin status changes refresh detail and revision history',async()=>{
   const calls=[];let detail={id:'article-1',studentId:'student-1',native:true,status:'draft',draftHtml:'<p>Body</p>',revisions:[]};
-  const request=async(path,init={})=>{calls.push(`${init.method||'GET'} ${path}`);if(path==='/api/native/articles?summary=1')return [detail];if(path==='/api/assignments')return {campaigns:[],assignments:[]};if(path==='/api/photos')return [];if(path==='/api/native/articles/article-1/submit'){detail={...detail,status:'submitted',revisions:[{revisionNumber:1,revisionKind:'submission'}]};return detail;}if(path==='/api/native/articles/article-1/status'){detail={...detail,status:JSON.parse(init.body).status,revisions:[...detail.revisions,{revisionNumber:2,revisionKind:'status_change'}]};return detail;}if(path==='/api/native/articles/article-1')return detail;throw new Error(path);};
+  const request=async(path,init={})=>{calls.push(`${init.method||'GET'} ${path}`);if(path==='/api/native/articles?summary=1&page=1&limit=20')return {items:[detail]};if(path==='/api/assignments')return {campaigns:[],assignments:[]};if(path==='/api/photos')return [];if(path==='/api/native/articles/article-1/submit'){detail={...detail,status:'submitted',revisions:[{revisionNumber:1,revisionKind:'submission'}]};return detail;}if(path==='/api/native/articles/article-1/status'){detail={...detail,status:JSON.parse(init.body).status,revisions:[...detail.revisions,{revisionNumber:2,revisionKind:'status_change'}]};return detail;}if(path==='/api/native/articles/article-1')return detail;throw new Error(path);};
   const service=await ProductionEditorialService.create({role:'student',studentId:'student-1'},request);
   const submitted=await service.submitNativeArticle('article-1');assert.equal(submitted.status,'submitted');assert.equal(submitted.revisions.length,1);
   const reviewed=await service.setNativeStatus('article-1','revision_requested');assert.equal(reviewed.status,'revision_requested');assert.equal(reviewed.revisions.length,2);
@@ -73,7 +73,7 @@ test('assignment deletion uses DELETE and removes the campaign and its slots fro
 
 test('startup uses only lightweight lists and never fetches article detail', async () => {
   const calls=[];
-  const request=async path=>{calls.push(path);if(path==='/api/native/articles?summary=1')return [{id:'article-1',studentId:'student-1'}];if(path==='/api/assignments')return {campaigns:[],assignments:[]};if(path==='/api/photos')return [];throw new Error(`Unexpected request: ${path}`);};
+  const request=async path=>{calls.push(path);if(path==='/api/native/articles?summary=1&page=1&limit=20')return {items:[{id:'article-1',studentId:'student-1'}]};if(path==='/api/assignments')return {campaigns:[],assignments:[]};if(path==='/api/photos')return [];throw new Error(`Unexpected request: ${path}`);};
   const service=await ProductionEditorialService.create({role:'student'},request);
   assert.equal(service.listArticles().length,1);
   assert.equal(calls.filter(path=>/^\/api\/native\/articles\/.+/.test(path)).length,0);
@@ -82,7 +82,7 @@ test('startup uses only lightweight lists and never fetches article detail', asy
 
 test('article detail is fetched once on selection and then cached', async () => {
   const calls=[];
-  const request=async path=>{calls.push(path);if(path==='/api/native/articles?summary=1')return [{id:'article-1',studentId:'student-1',native:true}];if(path==='/api/assignments')return {campaigns:[],assignments:[]};if(path==='/api/photos')return [];if(path==='/api/native/articles/article-1')return {id:'article-1',studentId:'student-1',draftHtml:'body'};throw new Error(`Unexpected request: ${path}`);};
+  const request=async path=>{calls.push(path);if(path==='/api/native/articles?summary=1&page=1&limit=20')return {items:[{id:'article-1',studentId:'student-1',native:true}]};if(path==='/api/assignments')return {campaigns:[],assignments:[]};if(path==='/api/photos')return [];if(path==='/api/native/articles/article-1')return {id:'article-1',studentId:'student-1',draftHtml:'body'};throw new Error(`Unexpected request: ${path}`);};
   const service=await ProductionEditorialService.create({role:'student'},request);
   await service.getArticleDetail('article-1');await service.getArticleDetail('article-1');
   assert.equal(calls.filter(path=>path==='/api/native/articles/article-1').length,1);
@@ -90,7 +90,7 @@ test('article detail is fetched once on selection and then cached', async () => 
 
 test('admin loads roster for targeting but never requests Classroom coursework', async () => {
   const calls=[];
-  const request=async path=>{calls.push(path);if(path==='/api/native/articles?summary=1'||path==='/api/photos')return [];if(path==='/api/assignments')return {campaigns:[],assignments:[]};if(path==='/api/classroom/students')return {students:[{id:'student-1',name:'Kim Mina'}]};throw new Error(`Unexpected request: ${path}`);};
+  const request=async path=>{calls.push(path);if(path==='/api/native/articles?summary=1&page=1&limit=20')return {items:[]};if(path==='/api/photos')return [];if(path==='/api/assignments')return {campaigns:[],assignments:[]};if(path==='/api/classroom/students')return {students:[{id:'student-1',name:'Kim Mina'}]};throw new Error(`Unexpected request: ${path}`);};
   const service=await ProductionEditorialService.create({role:'admin'},request);
   assert.equal(calls.includes('/api/classroom/students'),false);
   await service.ensureResource('students');
@@ -100,7 +100,7 @@ test('admin loads roster for targeting but never requests Classroom coursework',
 
 test('student startup uses only the signed-in student name and never requests roster', async () => {
   const calls=[];
-  const request=async path=>{calls.push(path);if(path==='/api/native/articles?summary=1'||path==='/api/photos')return [];if(path==='/api/assignments')return {campaigns:[],assignments:[]};throw new Error(`Unexpected request: ${path}`);};
+  const request=async path=>{calls.push(path);if(path==='/api/native/articles?summary=1&page=1&limit=20')return {items:[]};if(path==='/api/photos')return [];if(path==='/api/assignments')return {campaigns:[],assignments:[]};throw new Error(`Unexpected request: ${path}`);};
   const service=await ProductionEditorialService.create({role:'student',studentId:'student-1',name:'Kim Mina'},request);
   assert.deepEqual(service.getState().students,[{id:'student-1',name:'Kim Mina'}]);
   assert.equal(calls.includes('/api/classroom/students'),false);

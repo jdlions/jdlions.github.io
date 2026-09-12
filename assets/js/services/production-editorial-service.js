@@ -24,19 +24,25 @@ export function normalizePhoto(row) {
 }
 
 export class ProductionEditorialService {
-  constructor(state, session, request=api) { this.state=state; this.session=session; this.request=request; this.detailRequests=new Map(); this.resources=new Map(); if(session?.studentId)this.state.students=[{id:session.studentId,name:session.name||'이름 확인 불가'}]; }
+  constructor(state, session, request=api) { this.state=state; this.session=session; this.listRevision=0; this.request=async(path,init)=>{const result=await request(path,init);if(init?.method&&init.method!=='GET')this.listRevision++;return result;}; this.detailRequests=new Map(); this.resources=new Map(); if(session?.studentId)this.state.students=[{id:session.studentId,name:session.name||'이름 확인 불가'}]; }
   static empty(session, request=api) { return new ProductionEditorialService({issues:[],articles:[],photos:[],students:[],campaigns:[],assignments:[],publications:[]},session,request); }
   static async create(session, request=api) { const service=ProductionEditorialService.empty(session,request); await service.load(); return service; }
   async load(resources=['articles']){await Promise.all(resources.map(name=>this.ensureResource(name)));return this;}
+  async articlePage(filters={},signal){
+    const params=new URLSearchParams({summary:'1',page:'1',limit:'20',...filters});
+    const page=await this.request('/api/native/articles?'+params,{signal});
+    if(!page||!Array.isArray(page.items))throw new Error('목록 API 업데이트가 필요합니다. 잠시 후 다시 시도해 주세요.');
+    // This cache holds visited records only; it is never used as a complete list.
+    for(const row of page.items){const old=this.state.articles.find(x=>x.id===row.id);if(!old)this.state.articles.push(this.normalizeArticle({...row,native:true}));else if(!old.detailLoaded)Object.assign(old,this.normalizeArticle({...row,native:true}));}
+    return {...page,items:page.items.map(x=>this.normalizeArticle({...x,native:true}))};
+  }
   ensureResource(name){
     if(!this.session)return Promise.resolve();
     const cached=this.resources.get(name);if(cached?.promise)return cached.promise;if(cached?.loaded)return Promise.resolve();
     const state={loaded:false,error:null};this.resources.set(name,state);
     state.promise=(async()=>{
       if(name==='articles'){
-        const rows=await this.request('/api/native/articles?summary=1');
-        const existing=new Map(this.state.articles.map(row=>[row.id,row]));
-        this.state.articles=rows.map(row=>{const old=existing.get(row.id);existing.delete(row.id);return old?.detailLoaded?old:this.normalizeArticle({...row,native:true});}).concat([...existing.values()]);
+        await this.articlePage();
       }else if(name==='assignments'){const data=await this.request('/api/assignments');this.state.campaigns=data.campaigns||[];this.state.assignments=data.assignments||[];}
       else if(name==='photos')this.state.photos=(await this.request('/api/photos')).map(normalizePhoto);
       else if(name==='students'&&this.session.role==='admin')this.state.students=(await this.request('/api/classroom/students')).students||[];
