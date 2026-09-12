@@ -1,3 +1,9 @@
+import {draftSummary} from '../../assets/js/shared/article-preview.js';
+export function summarizeArticle(article){
+
+  const {draftHtml,editorDraftHtml,studentFeedback,internalNote,currentStudentRevisionId,currentEditorRevisionId,...metadata}=article;
+  return {...metadata,...draftSummary(draftHtml)};
+}
 const now = () => new Date().toISOString();
 const parseNativeArticle = row => row && ({
   id:row.id, issueId:row.issue_id, studentId:row.student_id, articleType:row.article_type,
@@ -20,7 +26,7 @@ export class D1EditorialRepository {
   async getPhoto(id) { return this.db.prepare('SELECT * FROM photos WHERE id=?').bind(id).first(); }
   async updatePhotoStatus(id,status){await this.db.prepare('UPDATE photos SET status=?,updated_at=? WHERE id=?').bind(status,now(),id).run();const row=await this.db.prepare('SELECT * FROM photos WHERE id=?').bind(id).first();if(!row)throw Object.assign(new Error('Photo not found.'),{status:404,code:'photo_not_found'});return row;}
   articleSelect(){return `SELECT a.*,f.student_feedback,f.internal_note,asi.id assignment_instance_id,asi.slot_id assignment_slot_id,asi.campaign_id,c.name assignment_name,s.display_name slot_name,c.due_at assignment_due_at,s.due_at slot_due_at FROM articles a LEFT JOIN article_feedback f ON f.article_id=a.id LEFT JOIN assignment_slot_instances asi ON asi.article_id=a.id LEFT JOIN assignment_campaigns c ON c.id=asi.campaign_id LEFT JOIN assignment_slots s ON s.id=asi.slot_id`;}
-  async listNativeArticles(studentId) { let q=this.articleSelect(); const args=[]; if(studentId){q+=' WHERE a.student_id=?';args.push(studentId);} q+=' ORDER BY a.updated_at DESC'; return (await this.db.prepare(q).bind(...args).all()).results.map(parseNativeArticle); }
+  async listNativeArticles(studentId,summary=false) { let q=this.articleSelect(); if(summary)q=q.replace('a.*,f.student_feedback,f.internal_note','a.id,a.issue_id,a.student_id,a.article_type,a.title_ko,a.title_en,a.status,a.draft_html,a.created_at,a.updated_at,a.submitted_at').replace(' LEFT JOIN article_feedback f ON f.article_id=a.id',''); const args=[]; if(studentId){q+=' WHERE a.student_id=?';args.push(studentId);} q+=' ORDER BY a.updated_at DESC'; return (await this.db.prepare(q).bind(...args).all()).results.map(row=>summary?summarizeArticle(parseNativeArticle(row)):parseNativeArticle(row)); }
   async getNativeArticle(id) { return parseNativeArticle(await this.db.prepare(`${this.articleSelect()} WHERE a.id=?`).bind(id).first()); }
   async deleteNativeArticle(id) {
     if(!await this.getNativeArticle(id))throw Object.assign(new Error('Article not found.'),{status:404,code:'article_not_found'});
@@ -45,7 +51,19 @@ export class D1EditorialRepository {
   async listRevisions(articleId) { return (await this.db.prepare(`SELECT id,article_id articleId,author_role authorRole,revision_kind revisionKind,title_ko titleKo,title_en titleEn,content_html contentHtml,revision_number revisionNumber,created_at createdAt FROM article_revisions WHERE article_id=? ORDER BY revision_number DESC`).bind(articleId).all()).results; }
   async createCampaign(input,actorId){const id=crypto.randomUUID(),timestamp=now();const slots=input.slots.map((slot,index)=>({id:crypto.randomUUID(),...slot,position:index}));await this.db.batch([this.db.prepare(`INSERT INTO assignment_campaigns(id,name,year,issue_label,issue_id,instructions,starts_at,due_at,status,audience_mode,created_by_user_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,'draft',?,?,?,?)`).bind(id,input.name,input.year,input.issueLabel,input.issueId,input.instructions,input.startsAt,input.dueAt,input.audienceMode,actorId,timestamp,timestamp),...slots.map(slot=>this.db.prepare(`INSERT INTO assignment_slots(id,campaign_id,article_type,display_name,required,quantity,due_at,instructions,position,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`).bind(slot.id,id,slot.articleType,slot.displayName,slot.required?1:0,slot.quantity,slot.dueAt,slot.instructions,slot.position,timestamp,timestamp)),...input.recipientStudentIds.map(studentId=>this.db.prepare('INSERT INTO assignment_targets(campaign_id,student_id) VALUES(?,?)').bind(id,studentId))]);return this.getCampaign(id);}
   async getCampaign(id){const campaign=parseCampaign(await this.db.prepare('SELECT * FROM assignment_campaigns WHERE id=?').bind(id).first());if(!campaign)return null;campaign.slots=(await this.db.prepare('SELECT * FROM assignment_slots WHERE campaign_id=? ORDER BY position,id').bind(id).all()).results.map(parseSlot);campaign.recipientStudentIds=(await this.db.prepare('SELECT student_id FROM assignment_targets WHERE campaign_id=?').bind(id).all()).results.map(x=>x.student_id);return campaign;}
-  async listCampaigns(studentId){let q='SELECT DISTINCT c.* FROM assignment_campaigns c',args=[];if(studentId){q+=' JOIN assignment_recipients r ON r.campaign_id=c.id WHERE r.student_id=?';args.push(studentId);}q+=' ORDER BY c.created_at DESC';const rows=(await this.db.prepare(q).bind(...args).all()).results;return Promise.all(rows.map(row=>this.getCampaign(row.id)));}
+  async listCampaigns(studentId){
+    const where=studentId?' WHERE EXISTS (SELECT 1 FROM assignment_recipients r WHERE r.campaign_id=c.id AND r.student_id=?)':'',args=studentId?[studentId]:[];
+    const campaigns=(await this.db.prepare('SELECT c.* FROM assignment_campaigns c'+where+' ORDER BY c.created_at DESC').bind(...args).all()).results.map(parseCampaign);
+    if(!campaigns.length)return [];
+    const [slots,targets]=await Promise.all([
+      this.db.prepare('SELECT s.* FROM assignment_slots s JOIN assignment_campaigns c ON c.id=s.campaign_id'+where+' ORDER BY s.position,s.id').bind(...args).all(),
+      this.db.prepare('SELECT t.campaign_id,t.student_id FROM assignment_targets t JOIN assignment_campaigns c ON c.id=t.campaign_id'+where+' ORDER BY t.campaign_id,t.student_id').bind(...args).all()
+    ]);
+    const byId=new Map(campaigns.map(c=>[c.id,Object.assign(c,{slots:[],recipientStudentIds:[]})]));
+    for(const slot of slots.results)byId.get(slot.campaign_id)?.slots.push(parseSlot(slot));
+    for(const target of targets.results)byId.get(target.campaign_id)?.recipientStudentIds.push(target.student_id);
+    return campaigns;
+  }
   async updateCampaign(id,input){const timestamp=now();await this.db.prepare(`UPDATE assignment_campaigns SET name=?,year=?,issue_label=?,issue_id=?,instructions=?,starts_at=?,due_at=?,status=?,updated_at=? WHERE id=?`).bind(input.name,input.year,input.issueLabel,input.issueId,input.instructions,input.startsAt,input.dueAt,input.status,timestamp,id).run();return this.getCampaign(id);}
   async assignmentDeletionSummary(id){
     const campaign=await this.getCampaign(id);

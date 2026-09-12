@@ -5,7 +5,7 @@ export class ProductionAuthService {
   constructor(session) { this.session=session; this.mode='production'; }
   static async create() {
     try { const result=await api('/api/session'); return new ProductionAuthService(result?.authenticated ? result.user : null); }
-    catch { return new ProductionAuthService(null); }
+    catch(error) { const service=new ProductionAuthService(null);service.error=error;return service; }
   }
   getSession() { return this.session; }
   async validateSession() { const result=await api('/api/session'); this.session=result?.authenticated?result.user:null; return this.session; }

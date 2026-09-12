@@ -1,3 +1,4 @@
+import {draftSummary} from '../shared/article-preview.js';
 import { api } from './api-client.js';
 
 export function normalizePhoto(row) {
@@ -23,24 +24,32 @@ export function normalizePhoto(row) {
 }
 
 export class ProductionEditorialService {
-  constructor(state, session, request=api) { this.state=state; this.session=session; this.request=request; this.detailRequests=new Map(); }
+  constructor(state, session, request=api) { this.state=state; this.session=session; this.request=request; this.detailRequests=new Map(); this.resources=new Map(); if(session?.studentId)this.state.students=[{id:session.studentId,name:session.name||'이름 확인 불가'}]; }
   static empty(session, request=api) { return new ProductionEditorialService({issues:[],articles:[],photos:[],students:[],campaigns:[],assignments:[],publications:[]},session,request); }
   static async create(session, request=api) { const service=ProductionEditorialService.empty(session,request); await service.load(); return service; }
-  async load() {
-    if(!this.session)return this;
-    let students=[];
-    const [nativeArticles,assignmentData,nativePhotos]=await Promise.all([this.request('/api/native/articles'),this.request('/api/assignments'),this.request('/api/photos')]);
-    const articles=nativeArticles.map(x=>({...x,native:true})),photos=nativePhotos.map(normalizePhoto);
-    if(this.session.role==='admin'){const rosterResult=await this.request('/api/classroom/students');students=rosterResult.students||[];}
-    else if(this.session.studentId){students=[{id:this.session.studentId,name:this.session.name||'이름 확인 불가'}];}
-    this.state={issues:[],articles:articles.map(x=>this.normalizeArticle(x)),photos,students,campaigns:assignmentData.campaigns||[],assignments:assignmentData.assignments||[],publications:[]};
-    return this;
+  async load(resources=['articles']){await Promise.all(resources.map(name=>this.ensureResource(name)));return this;}
+  ensureResource(name){
+    if(!this.session)return Promise.resolve();
+    const cached=this.resources.get(name);if(cached?.promise)return cached.promise;if(cached?.loaded)return Promise.resolve();
+    const state={loaded:false,error:null};this.resources.set(name,state);
+    state.promise=(async()=>{
+      if(name==='articles'){
+        const rows=await this.request('/api/native/articles?summary=1');
+        const existing=new Map(this.state.articles.map(row=>[row.id,row]));
+        this.state.articles=rows.map(row=>{const old=existing.get(row.id);existing.delete(row.id);return old?.detailLoaded?old:this.normalizeArticle({...row,native:true});}).concat([...existing.values()]);
+      }else if(name==='assignments'){const data=await this.request('/api/assignments');this.state.campaigns=data.campaigns||[];this.state.assignments=data.assignments||[];}
+      else if(name==='photos')this.state.photos=(await this.request('/api/photos')).map(normalizePhoto);
+      else if(name==='students'&&this.session.role==='admin')this.state.students=(await this.request('/api/classroom/students')).students||[];
+      else if(name!=='students')throw new Error('Unknown resource: '+name);
+      state.loaded=true;
+    })().catch(error=>{state.error=error;throw error;}).finally(()=>state.promise=null);
+    return state.promise;
   }
-  normalizeArticle(x){return {...x,title:x.titleKo||x.titleEn||x.attachments?.find(a=>a.title)?.title||'제목 없는 기사',articleTypeId:x.articleType||x.articleTypeId,originalContent:x.draftHtml||x.originalContent||'',editedContent:x.editorDraftHtml||x.edit?.edited_html||'',editorNote:x.studentFeedback||x.edit?.editor_note||'',status:x.status||x.edit?.status||'draft',native:Boolean(x.native)};}
+  normalizeArticle(x){const summary=Object.hasOwn(x,'draftHtml')?draftSummary(x.draftHtml):{};return {...x,...summary,title:x.titleKo||x.titleEn||x.attachments?.find(a=>a.title)?.title||'제목 없는 기사',articleTypeId:x.articleType||x.articleTypeId,originalContent:x.draftHtml||x.originalContent||'',editedContent:x.editorDraftHtml||x.edit?.edited_html||'',editorNote:x.studentFeedback||x.edit?.editor_note||'',status:x.status||x.edit?.status||'draft',native:Boolean(x.native)};}
   async getArticleDetail(id){
-    const row=this.state.articles.find(x=>x.id===id);if(!row)throw new Error('Article submission not found.');
+    let row=this.state.articles.find(x=>x.id===id);const inserted=!row;if(!row){row={id,native:true};this.state.articles.push(row);}
     if(row.detailLoaded)return structuredClone(row);
-    if(row.native){const detail=await this.request(`/api/native/articles/${encodeURIComponent(id)}`);Object.assign(row,this.normalizeArticle({...detail,native:true}),{detailLoaded:true});return structuredClone(row);}
+    if(row.native){if(!this.detailRequests.has(id))this.detailRequests.set(id,this.request(`/api/native/articles/${encodeURIComponent(id)}`).then(detail=>{Object.assign(row,this.normalizeArticle({...detail,native:true}),{detailLoaded:true});return row;}).catch(error=>{if(inserted)this.state.articles=this.state.articles.filter(x=>x!==row);throw error;}).finally(()=>this.detailRequests.delete(id)));return structuredClone(await this.detailRequests.get(id));}
     if(!this.detailRequests.has(id)){Object.assign(row,{detailLoading:true,detailError:null});this.detailRequests.set(id,this.request(`/api/articles/${encodeURIComponent(id)}?issueId=${encodeURIComponent(row.issueId)}`).then(detail=>{Object.assign(row,this.normalizeArticle(detail),{detailLoaded:true,detailLoading:false,detailError:null});return row;}).catch(error=>{Object.assign(row,{detailLoading:false,detailError:error.message||'Article detail could not be loaded.'});throw error;}).finally(()=>this.detailRequests.delete(id)));}
     return structuredClone(await this.detailRequests.get(id));
   }
