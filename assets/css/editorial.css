@@ -85,5 +85,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .article-queue-entry{display:flex;align-items:center;gap:.75rem}.article-queue-entry[hidden]{display:none}.article-queue-entry .queue-row{flex:1;min-width:0}.article-queue-entry>.btn-danger{flex-shrink:0}@media(max-width:640px){.article-queue-entry{flex-direction:column;align-items:stretch}}
 
 /* Allow queue filters to shrink inside the mobile grid without hiding overflow. */
+.article-pagination { flex-wrap:wrap; align-items:center; }
+.queue-tools.panel::after { right:0; bottom:0; }
 .queue-tools > *, .queue-tools .custom-select { min-width:0; max-width:100%; }
 .queue-tools > input, .queue-tools .custom-select__trigger { width:100%; min-width:0; }

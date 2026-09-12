@@ -1,3 +1,4 @@
+import {pageResponse} from './page-fixture.js';
 import {test,expect} from '@playwright/test';
 async function setup(page,role='admin'){
   const article={id:'a1',native:true,studentId:'student-'+ 'long-id-'.repeat(12),titleKo:'기사 제목',titleEn:'Article',articleType:'school',draftHtml:'<p>Student original</p>',status:role==='admin'?'submitted':'draft',submittedAt:'2026-09-06T00:00:00Z',updatedAt:'2026-09-06T00:00:00Z',revisions:[]};
@@ -15,7 +16,7 @@ async function setup(page,role='admin'){
     else if(path.endsWith('/status')){article.status=req.postDataJSON().status;data=article;}
     else if(path==='/api/native/articles/a1'){if(req.method()==='PATCH'){if(failSave)return route.fulfill({status:500,json:{error:{message:'Save failed'}}});const input=req.postDataJSON();Object.assign(article,input,{draftHtml:input.contentHtml});}data=article;}
     else throw new Error('Unexpected API '+path);
-    await route.fulfill({json:data});
+    await route.fulfill({json:path==='/api/native/articles'&&Array.isArray(data)?pageResponse(data):data});
   });
   await page.goto('/'+role+'/');await expect(page.locator('[data-new], [data-status-filter]').first()).toBeAttached();
   return {article,calls,fail:()=>failSave=true,recover:()=>failSave=false,failUpload:()=>failUpload=true,uploads:()=>uploads,release:()=>releaseUpload()};

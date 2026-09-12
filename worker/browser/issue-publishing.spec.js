@@ -1,3 +1,4 @@
+import {pageResponse} from './page-fixture.js';
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 const source = path => readFileSync(new URL('../../' + path, import.meta.url), 'utf8');
@@ -24,7 +25,7 @@ async function admin(page, { failFirst = false, listFailure = false } = {}) {
       const issue = { number: input.number, label: `No.${input.number}`, date: `${input.year} ${input.season}`, year: input.year, season: input.season, title: input.title, url: drive };
       issues.unshift(issue); data = { issue, replayed: false };
     } else throw new Error('Unexpected API: ' + path);
-    await route.fulfill({ json: data });
+    await route.fulfill({ json: path==='/api/native/articles'&&Array.isArray(data)?pageResponse(data):data });
   });
   await page.goto('/admin/#view=publications');
   return { calls, release: () => release() };

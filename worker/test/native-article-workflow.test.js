@@ -36,7 +36,7 @@ test('native UI includes autosave, submit lock, editor copy, feedback and revisi
 test('every user-visible admin dropdown uses the accessible shared custom select',async()=>{
   const [admin,ui,css]=await Promise.all([readFile(new URL('../../assets/js/admin/admin-app.js',import.meta.url),'utf8'),readFile(new URL('../../assets/js/shared/ui.js',import.meta.url),'utf8'),readFile(new URL('../../assets/css/editorial.css',import.meta.url),'utf8')]);
   assert.doesNotMatch(admin,/<select\b/i);
-  assert.match(admin,/customSelect\('status-filter'/);assert.match(admin,/customSelect\('type-filter'/);
+  const list=await readFile(new URL('../../assets/js/shared/article-list.js',import.meta.url),'utf8');assert.doesNotMatch(list,/<select\b/i);assert.match(list,/customSelect\('status-filter'/);assert.match(list,/customSelect\('type-filter'/);assert.match(list,/customSelect\('campaign-filter'/);
   assert.match(admin,/customSelect\('assignment-type'/);assert.match(admin,/customSelect\('assignment-status'/);
   assert.match(admin,/customSelect\('issue-id'/);assert.match(admin,/customSelect\('slot-type'/);assert.match(admin,/customSelect\('review-status'/);assert.match(admin,/customSelect\('photo-status'/);
   assert.match(admin,/initSlotSelects\(\)/);assert.match(admin,/querySelectorAll\('\[data-photo-select\]'\)/);

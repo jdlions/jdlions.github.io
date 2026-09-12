@@ -1,3 +1,4 @@
+import {pageResponse} from './page-fixture.js';
 import {test,expect} from '@playwright/test';
 async function setup(page,{articles=2,failSummary=false,failDelete=false}={}){
  const calls=[];let release;
@@ -16,7 +17,7 @@ async function setup(page,{articles=2,failSummary=false,failDelete=false}={}){
    if(failDelete)return route.fulfill({status:500,json:{error:{message:'삭제 실패'}}});
    await new Promise(resolve=>release=resolve);data={id:'c1',deleted:true,mode:'preserve_articles'};
   }else throw new Error('Unexpected route '+path);
-  await route.fulfill({json:data});
+  await route.fulfill({json:path==='/api/native/articles'&&Array.isArray(data)?pageResponse(data):data});
  });
  await page.goto('/admin/');if(page.viewportSize().width<768)await page.getByRole('button',{name:'메뉴 열기'}).click();await page.locator('[data-admin-view=assignments]').click();
  await page.locator('[data-delete-campaign]').click();
