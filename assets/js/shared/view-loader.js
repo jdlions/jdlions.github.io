@@ -1,4 +1,4 @@
-import {escapeHtml,emptyState} from './ui.js';
+import {escapeHtml,loadingState} from './ui.js';
 // Each dataset can finish independently; stale views never repaint an editor.
 export function createViewLoader(service){
   let generation=0;
@@ -16,7 +16,7 @@ export function createViewLoader(service){
           if(state?.loaded)continue;
           const block=document.createElement('div');
           if(state?.error){block.className='notice notice--error';block.innerHTML=escapeHtml(labels[name]+': '+state.error.message)+' <button data-retry-startup>다시 시도</button>';block.querySelector('button').onclick=()=>load(name);}
-          else block.innerHTML=emptyState(labels[name]+' 불러오는 중','다른 메뉴는 계속 이용할 수 있습니다.');
+          else block.innerHTML=loadingState(labels[name]+' 불러오는 중…',false);
           notices.append(block);
         }
         container.prepend(notices);

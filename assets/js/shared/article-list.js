@@ -1,4 +1,4 @@
-import {customSelect,initCustomSelect,escapeHtml,emptyState} from './ui.js';
+import {customSelect,initCustomSelect,escapeHtml,loadingState} from './ui.js';
 
 // One controller per list keeps its filters/cursor history while detail is open.
 export function createArticleList(service,{admin=false,picker=false,free=false,render,bind=()=>{},busy=()=>{}}){
@@ -19,7 +19,7 @@ export function createArticleList(service,{admin=false,picker=false,free=false,r
   }
   async function load({stats=true,target=position}={}){
     cancel();const current=sequence,host=root;abort=new AbortController();
-    busy(true);host.querySelector('[data-list-message]').textContent='기사 불러오는 중…';
+    busy(true);host.querySelector('[data-list-message]').innerHTML=loadingState('기사 불러오는 중…',false);
     host.querySelectorAll('[data-page-prev],[data-page-next]').forEach(b=>b.disabled=true);
     try{
       const page=await service.articlePage({...filters,cursor:cursors[target]||'',stats:stats?'1':'0',...(picker?{picker:'1'}:{})},abort.signal);
@@ -36,13 +36,14 @@ export function createArticleList(service,{admin=false,picker=false,free=false,r
   }
   function change(key,value,debounce=false){
     filters={...filters,[key]:value.trim()};position=0;cursors=[''];data=undefined;cancel();busy(true);
+    root.querySelector('[data-list-message]').innerHTML=loadingState('기사 불러오는 중…',false);
     // Invalidate immediately, including the debounce window.
     root.querySelectorAll('[data-page-prev],[data-page-next]').forEach(b=>b.disabled=true);
     if(debounce)timer=setTimeout(()=>load(),300);else load();
   }
   function mount(container){
     cancel();root=container;root.querySelectorAll('[data-custom-select]').forEach(x=>x._customSelect?.close(false));
-    root.innerHTML=`${admin?'<div class="queue-stats" data-list-stats></div>':''}<div class="queue-tools panel"><input data-query aria-label="기사 검색" maxlength="200" placeholder="제목 · 작성자 · 과제 검색" value="${escapeHtml(filters.q||'')}">${picker?'':`${customSelect('status-filter','모든 상태',[['','모든 상태'],...Object.entries(labels)],{value:filters.status||''})}${customSelect('type-filter','모든 기사 유형',[['','모든 기사 유형'],['school','학교 기사'],['feature','피처'],['opinion','오피니언'],['culture','문화'],['sports','스포츠'],['other','기타']],{value:filters.type||''})}${free?'':'<span data-campaign-control></span>'}${admin?`<input data-student-filter aria-label="작성자 검색" maxlength="200" placeholder="학생 ID 검색" value="${escapeHtml(filters.author||'')}"><input data-date-filter type="date" aria-label="제출일" value="${escapeHtml(filters.date||'')}">`:''}`}</div><div data-list-message role="status"></div><div data-list-results>${emptyState('기사 불러오는 중','다른 메뉴는 계속 사용할 수 있습니다.')}</div><div class="form-actions article-pagination"><button type="button" data-page-prev disabled>이전</button><span data-page-range></span><button type="button" data-page-next disabled>다음</button><button type="button" data-page-refresh>새로고침</button></div>`;
+    root.innerHTML=`${admin?'<div class="queue-stats" data-list-stats></div>':''}<div class="queue-tools panel"><input data-query aria-label="기사 검색" maxlength="200" placeholder="제목 · 작성자 · 과제 검색" value="${escapeHtml(filters.q||'')}">${picker?'':`${customSelect('status-filter','모든 상태',[['','모든 상태'],...Object.entries(labels)],{value:filters.status||''})}${customSelect('type-filter','모든 기사 유형',[['','모든 기사 유형'],['school','학교 기사'],['feature','피처'],['opinion','오피니언'],['culture','문화'],['sports','스포츠'],['other','기타']],{value:filters.type||''})}${free?'':'<span data-campaign-control></span>'}${admin?`<input data-student-filter aria-label="작성자 검색" maxlength="200" placeholder="학생 ID 검색" value="${escapeHtml(filters.author||'')}"><input data-date-filter type="date" aria-label="제출일" value="${escapeHtml(filters.date||'')}">`:''}`}</div><div data-list-message role="status"></div><div data-list-results></div><div class="form-actions article-pagination"><button type="button" data-page-prev disabled>이전</button><span data-page-range></span><button type="button" data-page-next disabled>다음</button><button type="button" data-page-refresh>새로고침</button></div>`;
     root.querySelector('[data-query]').oninput=e=>change('q',e.target.value,true);
     for(const [selector,key] of [['status-filter','status'],['type-filter','type']]){const input=root.querySelector('[data-'+selector+']');if(input)initCustomSelect(input.closest('[data-custom-select]'),value=>change(key,value));}
     for(const [selector,key] of [['date-filter','date'],['student-filter','author']]){const input=root.querySelector('[data-'+selector+']');if(input)input.oninput=e=>change(key,e.target.value,key==='author');}
