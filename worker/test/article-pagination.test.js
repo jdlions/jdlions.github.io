@@ -67,5 +67,6 @@ test('HTTP student queries and forged cursor remain student-scoped and no-store'
  const token=await seal({sub:'s',studentId:'s',courseId:'pagination',accessToken:'test',exp:Date.now()+60000},env.SESSION_SECRET);
  const request=params=>worker.fetch(new Request('https://local.test/api/native/articles?'+new URLSearchParams({page:'1',...params}),{headers:{Cookie:SESSION_COOKIE+'='+token}}),env);
  const response=await request({studentId:'outsider'}),body=await response.json();assert.equal(response.status,200);assert.match(response.headers.get('cache-control'),/no-store/);assert(body.items.every(x=>x.studentId==='s'));assert.doesNotMatch(JSON.stringify(body),/internalNote|editorDraftHtml|draftHtml|PRIVATE EDITOR/);
+ for(const params of [{q:'Title'},{status:'draft',author:'s'},{picker:'1'},{cursor:body.nextCursor,stats:'0'}]){const r=await request(params);assert.equal(r.status,200);const data=await r.json();assert(data.items.every(x=>x.studentId==='s'));assert.doesNotMatch(JSON.stringify(data),/internalNote|editorDraftHtml|draftHtml|PRIVATE EDITOR/);}
  assert.equal((await request({limit:'1000'})).status,400);assert.equal((await request({page:'2'})).status,400);f.sql.close();
 });

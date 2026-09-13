@@ -11,7 +11,7 @@ export function createViewLoader(service){
         if(current!==generation)return;
         const ready=resources.some(name=>service.resources.get(name)?.loaded);
         if(ready)paint();else container.innerHTML='';
-        const notices=document.createElement('div');notices.dataset.loadStatus='';
+        const notices=document.createElement('div');notices.dataset.loadStatus='';notices.setAttribute('role','status');notices.setAttribute('aria-live','polite');
         for(const name of resources){const state=service.resources.get(name);
           if(state?.loaded)continue;
           const block=document.createElement('div');

@@ -86,6 +86,16 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 
 /* Allow queue filters to shrink inside the mobile grid without hiding overflow. */
 .article-pagination { flex-wrap:wrap; align-items:center; }
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,[contenteditable]:focus-visible{outline:3px solid var(--gold);outline-offset:3px}
+dialog.modal{width:100%;max-width:100%;height:100dvh;max-height:100dvh;margin:0;border:0;color:var(--white);overflow-y:auto}
+dialog.modal::backdrop{background:rgba(2,3,8,.72)}
+dialog.modal:not([open]){display:none}
+@media(max-width:760px){.app-sidebar:not(.is-open){visibility:hidden}}
+dialog.modal .modal-card{max-height:calc(100dvh - 32px);overflow-y:auto;overscroll-behavior:contain}
+[data-article-picker] .queue-tools{grid-template-columns:minmax(0,1fr);padding:12px}
+[data-article-picker] [data-query]{padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--bg2);color:var(--white)}
+.photo-preview-unavailable{display:grid;place-items:center;aspect-ratio:640/420;margin:0;padding:20px;text-align:center;color:var(--muted)}
+.photo-card>img[data-photo-thumbnail]{width:100%;height:auto;aspect-ratio:640/420;object-fit:cover}
 .queue-tools.panel::after { right:0; bottom:0; }
 .queue-tools > *, .queue-tools .custom-select { min-width:0; max-width:100%; }
 .queue-tools > input, .queue-tools .custom-select__trigger { width:100%; min-width:0; }

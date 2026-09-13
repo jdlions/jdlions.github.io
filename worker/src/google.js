@@ -79,6 +79,24 @@ export async function downloadDriveFile(fileId, token, maxBytes) {
 
 const DRIVE_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
+// Drive owns thumbnail generation/lifetime. Never persist its credentialed URL.
+export async function driveThumbnail(fileId, token) {
+  const file=await googleFetch(`/drive/v3/files/${encodeURIComponent(fileId)}?fields=thumbnailLink,mimeType&supportsAllDrives=true`,token);
+  const unavailable=()=>Object.assign(new Error('사진 미리보기를 준비하지 못했습니다. 원본 열기를 이용해 주세요.'),{status:404,code:'photo_thumbnail_unavailable'});
+  if(!DRIVE_IMAGE_TYPES.has(file?.mimeType)||!file.thumbnailLink)throw unavailable();
+  let url;try{url=new URL(file.thumbnailLink);}catch{throw unavailable();}
+  if(url.protocol!=='https:'||url.username||url.password||url.port||!(url.hostname==='googleusercontent.com'||url.hostname.endsWith('.googleusercontent.com')))throw unavailable();
+  const response=await fetchWithTimeout(url.href,{headers:{Authorization:`Bearer ${token}`},redirect:'error'},120000,()=>Object.assign(new Error('사진 미리보기 시간이 초과되었습니다.'),{status:504,code:'google_timeout'}));
+  const contentType=(response.headers.get('content-type')||'').split(';')[0].trim().toLowerCase();
+  const maximum=1024*1024;
+  if(!response.ok||!DRIVE_IMAGE_TYPES.has(contentType)||Number(response.headers.get('content-length'))>maximum){await response.body?.cancel();throw unavailable();}
+  const reader=response.body?.getReader();if(!reader)throw unavailable();
+  const chunks=[];let size=0;
+  while(true){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>maximum){await reader.cancel();throw unavailable();}chunks.push(value);}
+  const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
+  return {body:bytes,contentType,contentLength:String(size)};
+}
+
 export async function streamDriveImage(fileId, token) {
   const query = new URLSearchParams({ alt: 'media', supportsAllDrives: 'true' });
   const response = await fetchGoogle(`${GOOGLE_API}/drive/v3/files/${encodeURIComponent(fileId)}?${query}`, { headers: { Authorization: `Bearer ${token}` } });

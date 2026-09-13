@@ -16,6 +16,7 @@ export function normalizePhoto(row) {
     fileSize: row.fileSize ?? (Number.isFinite(Number(byteSize)) ? `${(Number(byteSize) / 1024 / 1024).toFixed(1)} MB` : ''),
     sourceType: row.sourceType ?? row.source_type,
     rightsConfirmed: Boolean(row.rightsConfirmed ?? row.rights_confirmed ?? true),
+    thumbnailUrl: row.thumbnailUrl || (row.id ? `/api/photos/${encodeURIComponent(row.id)}/thumbnail` : ''),
     contentUrl: row.contentUrl || (row.id ? `/api/photos/${encodeURIComponent(row.id)}/content` : ''),
     originalUrl: row.originalUrl || (row.id ? `/api/photos/${encodeURIComponent(row.id)}/original` : ''),
     createdAt: row.createdAt ?? row.created_at,
@@ -55,9 +56,7 @@ export class ProductionEditorialService {
   async getArticleDetail(id){
     let row=this.state.articles.find(x=>x.id===id);const inserted=!row;if(!row){row={id,native:true};this.state.articles.push(row);}
     if(row.detailLoaded)return structuredClone(row);
-    if(row.native){if(!this.detailRequests.has(id))this.detailRequests.set(id,this.request(`/api/native/articles/${encodeURIComponent(id)}`).then(detail=>{Object.assign(row,this.normalizeArticle({...detail,native:true}),{detailLoaded:true});return row;}).catch(error=>{if(inserted)this.state.articles=this.state.articles.filter(x=>x!==row);throw error;}).finally(()=>this.detailRequests.delete(id)));return structuredClone(await this.detailRequests.get(id));}
-    if(!this.detailRequests.has(id)){Object.assign(row,{detailLoading:true,detailError:null});this.detailRequests.set(id,this.request(`/api/articles/${encodeURIComponent(id)}?issueId=${encodeURIComponent(row.issueId)}`).then(detail=>{Object.assign(row,this.normalizeArticle(detail),{detailLoaded:true,detailLoading:false,detailError:null});return row;}).catch(error=>{Object.assign(row,{detailLoading:false,detailError:error.message||'Article detail could not be loaded.'});throw error;}).finally(()=>this.detailRequests.delete(id)));}
-    return structuredClone(await this.detailRequests.get(id));
+    if(!this.detailRequests.has(id))this.detailRequests.set(id,this.request(`/api/native/articles/${encodeURIComponent(id)}`).then(detail=>{Object.assign(row,this.normalizeArticle({...detail,native:true}),{detailLoaded:true});return row;}).catch(error=>{if(inserted)this.state.articles=this.state.articles.filter(x=>x!==row);throw error;}).finally(()=>this.detailRequests.delete(id)));return structuredClone(await this.detailRequests.get(id));
   }
   async refreshArticleDetail(id){const row=this.state.articles.find(x=>x.id===id);if(!row)throw new Error('Article not found.');const detail=await this.request(`/api/native/articles/${encodeURIComponent(id)}`);Object.assign(row,this.normalizeArticle({...detail,native:true}),{detailLoaded:true});return structuredClone(row);}
   getState(){return structuredClone(this.state);}
@@ -87,20 +86,21 @@ export class ProductionEditorialService {
   async importNativeArticle(id,file){const body=new FormData();body.append('file',file);await this.request(`/api/native/articles/${encodeURIComponent(id)}/import`,{method:'POST',body});return this.refreshArticleDetail(id);}
   async saveNativeEditor(id,input){const saved={...this.normalizeArticle(await this.request(`/api/native/articles/${encodeURIComponent(id)}/editor`,{method:'PATCH',body:JSON.stringify(input)})),native:true};Object.assign(this.state.articles.find(x=>x.id===id),saved);return saved;}
   async setNativeStatus(id,status){await this.request(`/api/native/articles/${encodeURIComponent(id)}/status`,{method:'PATCH',body:JSON.stringify({status})});return this.refreshArticleDetail(id);}
-  async submitPhotos(input,files){
+  async submitPhotos(input,files,session,onProgress=()=>{}){
     if(this.photoUploadPending)throw new Error('Photo upload is already in progress.');
     this.photoUploadPending=true;
     this.uploadedFiles??=new WeakMap();
     const created=[],key=JSON.stringify(input);
     try{
-      for(const file of files){
+      for(const [index,file] of files.entries()){
+        onProgress({completed:index,total:files.length,pending:true});
         // Retrying a partially successful selection must not resend confirmed files.
         const previous=this.uploadedFiles.get(file);
         if(previous?.key===key){created.push(previous.photo);continue;}
         const body=new FormData();Object.entries(input).forEach(([k,v])=>body.append(k,v));
         body.append('copyright','true');body.append('file',file);
         const photo=normalizePhoto(await this.request('/api/photos/upload',{method:'POST',body}));
-        this.uploadedFiles.set(file,{key,photo});this.state.photos.unshift(photo);created.push(photo);
+        this.uploadedFiles.set(file,{key,photo});this.state.photos.unshift(photo);created.push(photo);onProgress({completed:index+1,total:files.length,pending:false});
       }
       return created;
     }finally{this.photoUploadPending=false;}
