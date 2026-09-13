@@ -129,7 +129,7 @@ test('public and internal surfaces use the PrideDesk brand and shared credit', a
     readFile(new URL('../../student/index.html',import.meta.url),'utf8')
   ]);
   assert.match(home,/class="nav-social"/);
-  assert.match(home,/class="nav-workspace" href="https:\/\/lions-pride-editorial-api\.editor-936\.workers\.dev\/editorial\/login\/"/);
+  assert.match(home,/class="nav-workspace" href="https:\/\/pridesk\.vercel\.app"/);
   for(const html of [login,admin,student]){
     assert.match(html,/PrideDesk/);
     assert.match(html,/Website &amp; PrideDesk by/);
