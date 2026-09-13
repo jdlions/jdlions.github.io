@@ -54,7 +54,7 @@ test('failed upload unlocks the form and preserves the selected file for retry',
   await page.locator('[data-upload-form]').evaluate(form=>form.dispatchEvent(new Event('submit',{cancelable:true,bubbles:true})));
   await expect.poll(state.uploads).toBe(1);state.release();await expect(page.locator('[name=files]')).toBeEnabled();
   await expect(page.locator('[data-upload-modal]')).toHaveClass(/is-open/);expect(await page.locator('[name=files]').evaluate(el=>el.files.length)).toBe(1);
-  await expect(page.locator('[data-toast]')).toContainText('일시적인 오류');
+  await expect(page.locator('dialog[open] [data-dialog-status]')).toContainText('일시적인 오류');
 });
 test('login restored from back-forward cache revalidates the session',async({page})=>{
   let authenticated=false;

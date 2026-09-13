@@ -1,6 +1,6 @@
 import { clearCookie, cookie, randomToken, requireTrustedOrigin, sanitizeHtml, seal, setCookie, STATE_COOKIE, SESSION_COOKIE, unseal } from './security.js';
 import {articleListOptions,listArticlePage} from './article-list.js';
-import { classroom, deleteDriveFile, driveFolderPreflight, exchangeCode, resolveMembership, streamDriveImage, uploadToDrive, userInfo } from './google.js';
+import { classroom, driveThumbnail, deleteDriveFile, driveFolderPreflight, exchangeCode, resolveMembership, streamDriveImage, uploadToDrive, userInfo } from './google.js';
 import { repository } from './repository.js';
 import { DOCX_MIME, MAX_DOCX_BYTES, parseDocx } from './docx.js';
 import { pridedeskRequest } from './pridedesk-proxy.js';
@@ -146,7 +146,7 @@ export async function createPhotoAfterDrive(repo, photo, token, remove = deleteD
 export function photoForClient(row) {
   if (!row) return row;
   const id = encodeURIComponent(row.id);
-  return { ...row, rightsConfirmed: Boolean(row.rights_confirmed ?? row.rightsConfirmed ?? true), contentUrl: `/api/photos/${id}/content`, originalUrl: `/api/photos/${id}/original` };
+  return { ...row, rightsConfirmed: Boolean(row.rights_confirmed ?? row.rightsConfirmed ?? true), thumbnailUrl: `/api/photos/${id}/thumbnail`, contentUrl: `/api/photos/${id}/content`, originalUrl: `/api/photos/${id}/original` };
 }
 
 export async function authorizePhotoViewer(repo, photoId, viewer) {
@@ -234,6 +234,8 @@ async function routeApi(request, env, pathname) {
   if(pathname==='/api/photos/folder-status'&&request.method==='GET'){requireAdmin(viewer);const folder=await driveFolderPreflight(env.DRIVE_UPLOAD_FOLDER_ID,viewer.accessToken);return ok({accessible:true,canAddChildren:folder.canAddChildren,storage:folder.driveId?'shared_drive':'my_drive'},env);}
   const photoStatus=pathname.match(/^\/api\/photos\/([^/]+)\/status$/);
   if(photoStatus&&request.method==='PATCH'){requireAdmin(viewer);const input=await request.json();if(!['unreviewed','approved','hold','rejected'].includes(input.status))throw Object.assign(new Error('Invalid photo status.'),{status:400,code:'invalid_status'});return ok(await repo.updatePhotoStatus(photoStatus[1],input.status),env);}
+  const thumbnail=pathname.match(/^\/api\/photos\/([^/]+)\/thumbnail$/);
+  if(thumbnail&&request.method==='GET'){const photo=await authorizePhotoViewer(repo,thumbnail[1],viewer);return photoContentResponse(photo,viewer.accessToken,driveThumbnail);}
   const photoContent=pathname.match(/^\/api\/photos\/([^/]+)\/content$/);
   if(photoContent&&request.method==='GET'){const photo=await authorizePhotoViewer(repo,photoContent[1],viewer);return photoContentResponse(photo,viewer.accessToken);}
   const photoOriginal=pathname.match(/^\/api\/photos\/([^/]+)\/original$/);
