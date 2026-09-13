@@ -47,5 +47,5 @@ test('student article and assignment loading are independent',async({page})=>{
 });
 test('homepage PrideDesk links use the confirmed production application',async({page})=>{
  const html=readFileSync('../index.html','utf8');await page.route('**/homepage-test',r=>r.fulfill({contentType:'text/html',body:html}));await page.goto('/homepage-test');
- await expect(page.locator('a.nav-workspace')).toHaveAttribute('href','https://pridedesk.vercel.app');await expect(page.locator('a[href*="workers.dev"][href*="editorial"]')).toHaveCount(0);await expect(page.locator('a[href^="https://pridesk.vercel.app"]')).toHaveCount(0);
+ await expect(page.locator('a.nav-workspace')).toHaveAttribute('href','https://pridesk.vercel.app');await expect(page.locator('a[href*="workers.dev"][href*="editorial"]')).toHaveCount(0);await expect(page.locator('a[href^="https://pridedesk.vercel.app"]')).toHaveCount(0);
 });
