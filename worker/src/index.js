@@ -1,5 +1,6 @@
 import { clearCookie, cookie, randomToken, requireTrustedOrigin, sanitizeHtml, seal, setCookie, STATE_COOKIE, SESSION_COOKIE, unseal } from './security.js';
 import {articleListOptions,listArticlePage} from './article-list.js';
+import {routeEditorialFiles} from './editorial-files.js';
 import { classroom, driveThumbnail, deleteDriveFile, driveFolderPreflight, exchangeCode, resolveMembership, streamDriveImage, uploadToDrive, userInfo } from './google.js';
 import { repository } from './repository.js';
 import { DOCX_MIME, MAX_DOCX_BYTES, parseDocx } from './docx.js';
@@ -174,6 +175,7 @@ export async function photoContentResponse(photo, token, stream = streamDriveIma
 
 async function routeApi(request, env, pathname) {
   const viewer = await session(request, env);
+  if(pathname.startsWith('/api/editorial-files/'))return routeEditorialFiles(request,env,viewer,pathname);
   if (pathname === '/api/session' && request.method === 'GET') return ok({ authenticated: true, user: { id: viewer.sub, name: viewer.name, email: viewer.email, role: viewer.role, studentId: viewer.studentId } }, env);
   if (pathname === '/api/classroom/students' && request.method === 'GET') { requireAdmin(viewer); return ok({students:await configuredRoster(env.NEWSPAPER_CLASSROOM_ID,viewer.accessToken)},env); }
   const repo = repository(env);

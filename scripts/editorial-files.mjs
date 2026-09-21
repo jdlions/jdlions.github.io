@@ -10,6 +10,7 @@ export const editorialFiles = [
   'assets/js/config.js',
   'assets/js/admin/admin-app.js',
   'assets/js/admin/issue-publishing.js',
+  'assets/js/admin/editorial-files.js',
   'assets/js/student/student-app.js',
   'assets/js/auth/auth-service.js',
   'assets/js/auth/login-app.js',

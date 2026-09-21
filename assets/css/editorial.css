@@ -111,3 +111,7 @@ dialog.modal .modal-card{max-height:calc(100dvh - 32px);overflow-y:auto;overscro
 .loading-spinner{flex:0 0 20px;width:20px;height:20px;border:2px solid rgba(201,168,76,.2);border-top-color:var(--gold);border-radius:50%;animation:loading-spin .9s linear infinite}
 @keyframes loading-spin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.loading-spinner{animation:none}}
+[data-view="files"] .panel{margin-block:16px;overflow-wrap:anywhere}
+[data-view="files"] form{display:grid;gap:12px}
+[data-view="files"] input,[data-view="files"] select,[data-view="files"] textarea{max-width:100%;min-width:0}
+[data-view="files"] progress{width:100%;accent-color:var(--gold,#d6b75b)}
