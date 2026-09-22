@@ -17,7 +17,7 @@ function fixture(){
   const db={prepare(query){let args=[];const s={bind(...values){args=values;return s;},first:async()=>sql.prepare(query).get(...args),all:async()=>({results:sql.prepare(query).all(...args)}),run:async()=>sql.prepare(query).run(...args),exec:()=>sql.prepare(query).run(...args)};return s;},async batch(stmts){sql.exec('BEGIN');try{const result=stmts.map(s=>s.exec());sql.exec('COMMIT');return result;}catch(e){sql.exec('ROLLBACK');throw e;}}};
   const files=new Map();let ids=0;
   const drive={async id(){return 'file-'+(++ids);},async folder(){return 'private-folder';},async start(v,parent){files.set(v.drive_file_id,{id:v.drive_file_id,name:v.normalized_filename,parents:[parent],data:new Uint8Array(0)});return 'https://www.googleapis.com/upload/drive/test/'+v.drive_file_id;},async send(v,token,body,offset){const f=files.get(v.drive_file_id);if(body){assert.equal(offset,f.data.length);const data=new Uint8Array(offset+body.byteLength);data.set(f.data);data.set(body,offset);f.data=data;}return {offset:f.data.length,done:f.data.length===v.file_size};},async metadata(id){const f=files.get(id);return {...f,size:f.data.length,md5Checksum:'drive-md5'};},async download(id){return new Response(files.get(id).data);}};
-  sql.exec("UPDATE editorial_editors SET name=CASE role WHEN 'chief' THEN '유현승' ELSE '김우준' END,slack_user_id=CASE role WHEN 'chief' THEN 'U11111111' ELSE 'U22222222' END");
+  sql.exec("UPDATE editorial_editors SET name=CASE role WHEN 'chief' THEN '유현승' ELSE '김우준' END");
   const repo=new EditorialFiles(db,drive,'chief');
   return {sql,db,drive,repo,files,async project(){await repo.create({year:2026,season:'Winter'},'token');return '2026_Winter';},async upload(project,overrides={},ticket){ticket||=(await repo.begin(project,'shared-editor')).lock.id;const start=await repo.upload(project,'shared-editor',input(ticket,overrides),'token');if(!start.done){await repo.progress(start.id,'shared-editor','token',bytes,0);await repo.finish(start.id,'shared-editor','token');}return start;}};
 }
@@ -122,29 +122,29 @@ test('D1 checkout survives a fresh repository/device, blocks deputy, and keeps h
   await f.upload(p);const d=await recovered.detail(p);assert.equal(d.latest.editor_name,'다음 편집장');assert.equal(d.versions[1].editor_name,'유현승');assert.equal(d.latest.editor_role,'chief');assert.equal(d.versions[1].editor_role,'chief');
 });
 
-test('forced close snapshots owner recipient, audits actor, sends one DM, and blocks late upload',async t=>{
+test('forced close audits actor, sends one channel message without DM, and blocks late upload',async t=>{
   const f=fixture();t.after(()=>f.sql.close());const p=await f.project(),lock=(await f.repo.begin(p,'shared-editor')).lock;
-  const settings=await f.repo.checkout.settings();settings.dmEnabled=true;settings.editors[0].slack_user_id='U33333333';await f.repo.checkout.saveSettings(settings);
-  const calls=[];t.mock.method(globalThis,'fetch',async(url,init)=>{calls.push({url,body:JSON.parse(init.body)});return Response.json(String(url).endsWith('conversations.open')?{ok:true,channel:{id:'D11111111'}}:{ok:true,ts:'123.456'});});
+  const settings=await f.repo.checkout.settings();settings.channelEnabled=true;settings.channelId='C11111111';await f.repo.checkout.saveSettings(settings);
+  const calls=[];t.mock.method(globalThis,'fetch',async(url,init)=>{calls.push({url,body:JSON.parse(init.body)});assert.equal(String(url),'https://slack.com/api/chat.postMessage');return Response.json({ok:true,ts:'123.456'});});
   const actor=await f.repo.checkout.actor('deputy','shared-editor'),env={SLACK_BOT_TOKEN:'mock-token'};
   await assert.rejects(f.repo.checkout.close(lock.id,actor,true,'no',env),{status:400});assert.equal(calls.length,0);
   const results=await Promise.all([f.repo.checkout.close(lock.id,actor,true,'강제 종료',env),f.repo.checkout.close(lock.id,actor,true,'강제 종료',env)]);
-  assert(results.some(r=>r.notificationStatus==='sent'));assert.equal(calls.length,2);assert.equal(calls[0].body.users,'U11111111');assert.equal(calls[1].body.channel,'D11111111');
+  assert(results.some(r=>r.notificationStatus==='sent'));assert.equal(calls.length,1);assert.equal(calls[0].body.channel,'C11111111');assert.match(calls[0].body.text,/부편집장 김우준이 편집장 유현승/);assert.equal(calls[0].body.mrkdwn,false);
   const d=await f.repo.detail(p);assert.equal(d.lock,null);assert.equal(d.audit.length,1);assert.equal(d.audit[0].actor_role,'deputy');assert.equal(d.audit[0].owner_name,'유현승');assert.equal(d.audit[0].notification_status,'sent');assert.doesNotMatch(JSON.stringify(d),/U11111111|slack_user_id/);
   await assert.rejects(f.repo.upload(p,'shared-editor',input(lock.id),'token'),{status:409});assert.equal(f.files.size,0);
 });
 
 test('Slack failure never revives forced lock or prevents committed version/channel notification',async t=>{
-  const f=fixture();t.after(()=>f.sql.close());const p=await f.project();const settings=await f.repo.checkout.settings();settings.dmEnabled=true;settings.channelEnabled=true;settings.channelId='C11111111';await f.repo.checkout.saveSettings(settings);f.repo.env={SLACK_BOT_TOKEN:'mock-token'};
+  const f=fixture();t.after(()=>f.sql.close());const p=await f.project();const settings=await f.repo.checkout.settings();settings.channelEnabled=true;settings.channelId='C11111111';await f.repo.checkout.saveSettings(settings);f.repo.env={SLACK_BOT_TOKEN:'mock-token'};
   const calls=[];t.mock.method(globalThis,'fetch',async(url,init)=>{calls.push({url,body:JSON.parse(init.body)});return Response.json({ok:false,error:'invalid_auth'});});
   const lock=(await f.repo.begin(p,'shared-editor')).lock;const closed=await f.repo.checkout.close(lock.id,await f.repo.checkout.actor('deputy','shared-editor'),true,'강제 종료',f.repo.env);assert.equal(closed.notificationStatus,'failed');assert.equal((await f.repo.detail(p)).lock,null);
-  const s=await f.upload(p);assert.equal((await f.repo.finish(s.id,'shared-editor','token')).notificationStatus,'failed');const d=await f.repo.detail(p);assert.equal(d.latest.version,1);assert.equal(d.lock,null);assert.equal(calls.length,2);assert.equal(calls[1].body.channel,'C11111111');assert.match(calls[1].body.text,/v1|School 수정/);assert.equal(calls[1].body.mrkdwn,false);assert.equal(calls[1].body.unfurl_links,false);
+  const s=await f.upload(p);assert.equal((await f.repo.finish(s.id,'shared-editor','token')).notificationStatus,'failed');const d=await f.repo.detail(p);assert.equal(d.latest.version,1);assert.equal(d.lock,null);assert.equal(calls.length,2);assert(calls.every(c=>c.url==='https://slack.com/api/chat.postMessage'&&c.body.channel==='C11111111'));assert.match(calls[1].body.text,/v1|School 수정/);assert.equal(calls[1].body.mrkdwn,false);assert.equal(calls[1].body.unfurl_links,false);
 });
 
 test('channel notification succeeds once after durable commit; retry is silent',async t=>{
   const f=fixture();t.after(()=>f.sql.close());const p=await f.project(),settings=await f.repo.checkout.settings();settings.channelEnabled=true;settings.channelId='C11111111';await f.repo.checkout.saveSettings(settings);f.repo.env={SLACK_BOT_TOKEN:'mock'};let calls=0;
-  t.mock.method(globalThis,'fetch',async()=>{calls++;assert.equal((await f.repo.detail(p)).latest.version,1);assert.equal((await f.repo.detail(p)).lock,null);return Response.json({ok:true,ts:'123.789'});});
-  const s=await f.upload(p);assert.equal((await f.repo.finish(s.id,'shared-editor','token')).notificationStatus,'sent');assert.equal(calls,1);
+  t.mock.method(globalThis,'fetch',async(url,init)=>{calls++;assert.equal(url,'https://slack.com/api/chat.postMessage');const body=JSON.parse(init.body);assert.equal(body.channel,'C11111111');assert.match(body.text,/v1 · 편집장 유현승/);assert.doesNotMatch(body.text,/수정 내용:|없음/);assert.equal((await f.repo.detail(p)).latest.version,1);assert.equal((await f.repo.detail(p)).lock,null);return Response.json({ok:true,ts:'123.789'});});
+  const s=await f.upload(p,{changeNote:''});assert.equal((await f.repo.finish(s.id,'shared-editor','token')).notificationStatus,'sent');assert.equal(calls,1);
 });
 
 test('force versus finalization has a single terminal event and coherent latest pointer',async t=>{
@@ -166,8 +166,9 @@ test('stale D1 baseline and missing named role cannot upload or contact Drive',a
 test('settings validate identifiers, do not return secret, and notification rate cap is durable',async t=>{
   const f=fixture();t.after(()=>f.sql.close());const p=await f.project(),settings=await f.repo.checkout.settings();
   for(const channelId of ['https://evil.example','@channel'])await assert.rejects(f.repo.checkout.saveSettings({...settings,channelId}),{status:400});
-  await assert.rejects(f.repo.checkout.saveSettings({...settings,editors:[{role:'chief',name:'x',slack_user_id:'name'},settings.editors[1]]}),{status:400});
-  settings.dmEnabled=true;await f.repo.checkout.saveSettings(settings);let calls=0;const actor=await f.repo.checkout.actor('deputy','shared-editor');
+  assert.deepEqual(Object.keys(settings.editors[0]).sort(),['name','role']);assert.equal('dmEnabled' in settings,false);settings.channelEnabled=true;settings.channelId='C11111111';
+  await f.repo.checkout.saveSettings({...settings,editors:[{role:'chief',name:'유현승'},settings.editors[1]]});assert.equal(f.sql.prepare("SELECT slack_user_id FROM editorial_editors WHERE role='chief'").get().slack_user_id,'');
+  await f.repo.checkout.saveSettings(settings);let calls=0;const actor=await f.repo.checkout.actor('deputy','shared-editor');
   for(let i=0;i<4;i++){const lock=(await f.repo.begin(p,'shared-editor')).lock;const r=await f.repo.checkout.close(lock.id,actor,true,'강제 종료',{SLACK_BOT_TOKEN:'mock'},async()=>{calls++;return {status:'sent'};});assert.equal(r.notificationStatus,i<3?'sent':'rate_limited');}
   assert.equal(calls,3);assert.doesNotMatch(JSON.stringify(await f.repo.checkout.settings()),/TOKEN|mock/);
 });
@@ -176,7 +177,8 @@ test('Slack transport rejects arbitrary destinations and classifies ambiguous fa
   const calls=[];t.mock.method(globalThis,'fetch',async(url,init)=>{calls.push({url,init});throw new Error('network timeout');});
   const event={action:'forced',owner_role:'chief',project_id:'2026_Winter',base_version:14};
   assert.equal((await sendEditorialSlack({SLACK_BOT_TOKEN:'mock'},event,'https://evil.example')).status,'skipped_unlinked');assert.equal(calls.length,0);
-  assert.equal((await sendEditorialSlack({SLACK_BOT_TOKEN:'mock'},event,'U11111111')).status,'unknown');assert.equal(calls.length,1);assert.equal(calls[0].url,'https://slack.com/api/conversations.open');assert.equal(calls[0].init.redirect,'error');
+  for(const destination of ['U11111111','D11111111'])assert.equal((await sendEditorialSlack({SLACK_BOT_TOKEN:'mock'},event,destination)).status,'skipped_unlinked');
+  assert.equal((await sendEditorialSlack({SLACK_BOT_TOKEN:'mock'},event,'C11111111')).status,'unknown');assert.equal(calls.length,1);assert.equal(calls[0].url,'https://slack.com/api/chat.postMessage');assert.equal(calls[0].init.redirect,'error');
 });
 
 test('0007 upgrade preserves completed 0006 history and invalidates only tab-based pending reservations',async t=>{

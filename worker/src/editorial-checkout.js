@@ -1,5 +1,5 @@
 import {cookie,seal,unseal,setCookie} from './security.js';
-import {sendEditorialSlack,slackUserId,slackChannelId} from './editorial-slack.js';
+import {sendEditorialSlack,slackChannelId} from './editorial-slack.js';
 export const OPERATOR_COOKIE='__Host-lp_editor';
 export const roleLabels={chief:'편집장',deputy:'부편집장'};
 const fail=(message,status=409)=>Object.assign(new Error(message),{status,code:'editorial_lock_error'});
@@ -8,20 +8,20 @@ export class EditorialCheckout {
   constructor(db){this.db=db;}
   stmt(sql,...args){return this.db.prepare(sql).bind(...args);}
   async editors(){return (await this.stmt('SELECT role,name FROM editorial_editors ORDER BY role').all()).results;}
-  async settings(){const settings=await this.stmt('SELECT * FROM editorial_editor_settings WHERE id=1').first();return {editors:(await this.stmt('SELECT role,name,slack_user_id FROM editorial_editors ORDER BY role').all()).results,dmEnabled:Boolean(settings.dm_enabled),channelEnabled:Boolean(settings.channel_enabled),channelId:settings.channel_id};}
+  async settings(){const settings=await this.stmt('SELECT * FROM editorial_editor_settings WHERE id=1').first();return {editors:(await this.stmt('SELECT role,name FROM editorial_editors ORDER BY role').all()).results,channelEnabled:Boolean(settings.channel_enabled),channelId:settings.channel_id};}
   async saveSettings(input){
-    if(!Array.isArray(input?.editors)||input.editors.length!==2||typeof input.dmEnabled!=='boolean'||typeof input.channelEnabled!=='boolean')throw fail('편집자 설정을 확인해 주세요.',400);
+    if(!Array.isArray(input?.editors)||input.editors.length!==2||typeof input.channelEnabled!=='boolean')throw fail('편집자 설정을 확인해 주세요.',400);
     const channel=String(input.channelId||'').trim();if(channel&&!slackChannelId(channel))throw fail('Slack 채널 ID를 확인해 주세요.',400);
     const rows=Object.keys(roleLabels).map(role=>{
       const matches=input.editors.filter(x=>x?.role===role);if(matches.length!==1)throw fail('편집자 역할을 확인해 주세요.',400);
-      const name=String(matches[0].name||'').trim(),slack=String(matches[0].slack_user_id||'').trim();
-      if(name.length>80||/[\x00-\x1f]/.test(name)||(slack&&!slackUserId(slack)))throw fail('이름은 80자 이하, Slack 사용자는 멤버 ID(U/W로 시작)를 입력해 주세요.',400);
-      return {role,name,slack};
+      const name=String(matches[0].name||'').trim();
+      if(name.length>80||/[\x00-\x1f]/.test(name))throw fail('이름은 제어 문자 없이 80자 이하로 입력해 주세요.',400);
+      return {role,name};
     });
-    await this.db.batch([...rows.map(x=>this.stmt('UPDATE editorial_editors SET name=?,slack_user_id=?,updated_at=? WHERE role=?',x.name,x.slack,now(),x.role)),this.stmt('UPDATE editorial_editor_settings SET dm_enabled=?,channel_enabled=?,channel_id=? WHERE id=1',input.dmEnabled?1:0,input.channelEnabled?1:0,channel)]);
+    await this.db.batch([...rows.map(x=>this.stmt('UPDATE editorial_editors SET name=?,updated_at=? WHERE role=?',x.name,now(),x.role)),this.stmt('UPDATE editorial_editor_settings SET channel_enabled=?,channel_id=? WHERE id=1',input.channelEnabled?1:0,channel)]);
     return {saved:true};
   }
-  async actor(role,user){const e=await this.stmt('SELECT role,name,slack_user_id FROM editorial_editors WHERE role=?',role||'').first();if(!e?.name)throw fail('편집자 설정을 완료하고 작업자를 선택해 주세요.',403);return {...e,user};}
+  async actor(role,user){const e=await this.stmt('SELECT role,name FROM editorial_editors WHERE role=?',role||'').first();if(!e?.name)throw fail('편집자 설정을 완료하고 작업자를 선택해 주세요.',403);return {...e,user};}
   async active(project){return await this.stmt('SELECT id,project_id,owner_role,owner_name,base_version,started_at FROM editorial_locks WHERE project_id=? AND ended_at IS NULL',project).first()||null;}
   async requireLock(id,actor,allowCompleted=false){
     const lock=await this.stmt('SELECT * FROM editorial_locks WHERE id=?',id).first();
@@ -33,7 +33,8 @@ export class EditorialCheckout {
     const id=crypto.randomUUID(),started=now();
     try{await this.db.batch([
       this.stmt('INSERT INTO editorial_edit_sessions(id,project_id,user_id,base_version,created_at) SELECT ?,id,?,latest_version,? FROM editorial_projects WHERE id=?',id,actor.user,started,project),
-      this.stmt('INSERT INTO editorial_locks(id,project_id,user_id,owner_role,owner_name,owner_slack_user_id,base_version,started_at) SELECT id,project_id,user_id,?,?,?,base_version,created_at FROM editorial_edit_sessions WHERE id=?',actor.role,actor.name,actor.slack_user_id,id)
+      // Keep the published 0007 NOT NULL legacy column empty; member IDs are no longer used.
+      this.stmt('INSERT INTO editorial_locks(id,project_id,user_id,owner_role,owner_name,owner_slack_user_id,base_version,started_at) SELECT id,project_id,user_id,?,?,?,base_version,created_at FROM editorial_edit_sessions WHERE id=?',actor.role,actor.name,'',id)
     ]);}catch(error){if(await this.active(project))throw fail('이미 편집 중인 작업자가 있습니다.');throw error;}
     const lock=await this.active(project);if(!lock||lock.id!==id)throw fail('편집 시작 상태가 변경되었습니다. 새로고침해 주세요.');
     const v=await this.stmt("SELECT normalized_filename FROM editorial_versions WHERE project_id=? AND version=? AND state='complete'",project,lock.base_version).first();
@@ -68,17 +69,17 @@ export class EditorialCheckout {
   async notify(eventId,env,send){
     const event=await this.stmt('SELECT * FROM editorial_lock_audit WHERE id=?',eventId).first();
     if(!event||event.notification_status!=='pending')return event?.notification_status||'unknown';
-    const settings=await this.settings(),dm=event.action==='forced';
-    const destination=dm?(await this.stmt('SELECT owner_slack_user_id FROM editorial_locks WHERE id=?',event.lock_id).first())?.owner_slack_user_id:settings.channelId;
+    const settings=await this.settings(),forced=event.action==='forced';
+    const destination=settings.channelId;
     let result;
-    if(!(dm?settings.dmEnabled:settings.channelEnabled))result={status:'skipped_off'};
+    if(!settings.channelEnabled)result={status:'skipped_off'};
     else if(!destination)result={status:'skipped_unlinked'};
     else if(!env.SLACK_BOT_TOKEN)result={status:'not_configured'};
     else{
-      const claim=await this.stmt("UPDATE editorial_lock_audit SET notification_status='sending',notification_status_at=? WHERE id=? AND notification_status='pending' AND (SELECT COUNT(*) FROM editorial_lock_audit WHERE action=? AND (?=0 OR owner_role=?) AND created_at>=? AND notification_status IN ('sending','sent','failed','unknown'))<?",now(),eventId,event.action,dm?1:0,event.owner_role,new Date(Date.now()-3600000).toISOString(),dm?3:60).run();
+      const claim=await this.stmt("UPDATE editorial_lock_audit SET notification_status='sending',notification_status_at=? WHERE id=? AND notification_status='pending' AND (SELECT COUNT(*) FROM editorial_lock_audit WHERE action=? AND (?=0 OR owner_role=?) AND created_at>=? AND notification_status IN ('sending','sent','failed','unknown'))<?",now(),eventId,event.action,forced?1:0,event.owner_role,new Date(Date.now()-3600000).toISOString(),forced?3:60).run();
       if((claim.meta?.changes??claim.changes)===0){const status=await this.notificationStatus(event.lock_id);if(status!=='pending')return status;result={status:'rate_limited'};}
       else{
-        const version=dm?null:await this.stmt("SELECT version,editor_name,change_note,uploaded_at FROM editorial_versions WHERE edit_session_id=? AND state='complete'",event.lock_id).first();
+        const version=forced?null:await this.stmt("SELECT version,editor_name,change_note,uploaded_at FROM editorial_versions WHERE edit_session_id=? AND state='complete'",event.lock_id).first();
         try{result=await send(env,event,destination,version);}catch{result={status:'unknown'};}
       }
     }

@@ -2,7 +2,7 @@
 
 ## 운영 구조와 사용 흐름
 
-기존 PR #37의 private Drive 저장, 프로젝트별 버전, 1 GiB/2 MiB 분할 업로드와 재시도를 유지한다. 관리자 `편집 파일`에서 `편집자 설정`을 열어 편집장/부편집장의 이름과 Slack **멤버 ID**를 등록한다. 현재 작업자를 선택하고 `편집 시작`을 누르면 서버 잠금 획득 후 최신본을 다운로드한다. 파일을 수정한 뒤 메모(선택)와 Affinity 원본 하나만 업로드한다. 별도 PDF/JPG/미리보기는 없다.
+기존 PR #37의 private Drive 저장, 프로젝트별 버전, 1 GiB/2 MiB 분할 업로드와 재시도를 유지한다. 관리자 `편집 파일`에서 `편집자 설정`을 열어 편집장/부편집장의 이름만 등록한다. 현재 작업자를 선택하고 `편집 시작`을 누르면 서버 잠금 획득 후 최신본을 다운로드한다. 파일을 수정한 뒤 메모(선택)와 Affinity 원본 하나만 업로드한다. 별도 PDF/JPG/미리보기는 없다.
 
 기존 Classroom admin 판정이 접근 권한이다. 역할 선택은 공용 editor 계정에서 작업자를 구분하는 자기신고이며 개인 신원을 인증하지 않는다. admin은 두 역할을 선택할 수 있다. 서명·암호화된 Secure/HttpOnly/SameSite=Lax 쿠키는 선택 역할만 기억한다. 잠금은 쿠키나 탭이 아니라 D1에 있으므로 재로그인/다른 기기에서 같은 Google 계정과 역할을 선택하면 복원된다. 다른 Google 계정은 소유자 업로드/취소를 할 수 없고, 관리자 강제 종료 절차를 이용한다.
 
@@ -10,7 +10,7 @@
 
 ## 잠금·버전·경합
 
-- `editorial_locks`의 프로젝트별 active partial UNIQUE index가 동시 checkout을 하나로 제한한다. base_version/역할/이름/시작 시각과 Slack 수신자 ID를 checkout 시 snapshot한다. 이름이나 담당자가 바뀌어도 진행 중 작업의 귀속과 과거 버전은 바뀌지 않는다. 이후 checkout부터 새 설정을 사용한다.
+- `editorial_locks`의 프로젝트별 active partial UNIQUE index가 동시 checkout을 하나로 제한한다. base_version/역할/이름/시작 시각을 checkout 시 snapshot한다. 이름이나 담당자가 바뀌어도 진행 중 작업의 귀속과 과거 버전은 바뀌지 않는다. 이후 checkout부터 새 설정을 사용한다.
 - 업로드 예약/완료마다 소유 계정·역할·active lock·현재 latest=base를 재검증한다. Drive 파일 검증 후 D1 batch에서 버전 확정, latest 갱신, 잠금 종료, audit 생성을 원자적으로 처리한다. 동시 finish는 같은 결과를 반환하며 번호/audit/알림을 중복 생성하지 않는다.
 - 소유자 취소/다른 작업자 강제 종료는 확인창과 서버 확인 문자열을 요구한다. audit에 행위자 계정/역할/이름, 소유자 역할/이름, base, 시각을 보존한다. 프런트 목록에는 계정 ID와 Slack ID를 노출하지 않는다.
 - 강제 종료와 finish가 경합하면 먼저 확정된 D1 결과 하나만 유효하다. 종료된 업로드는 latest가 될 수 없다. 전송 중 Google 요청까지 원자적으로 중지할 수는 없으므로 미완료 private 파일이 남을 수 있지만 자동 삭제하지 않는다.
@@ -30,23 +30,27 @@
 
 Slack은 실제 D1 이벤트에서만 발송한다. 임의 수신자/본문을 보내는 API는 없다.
 
-- 강제 종료: checkout 당시 소유자의 Slack ID로 DM. 담당자 설정 변경 후에도 원래 작업자에게 간다.
+- 강제 종료: 설정된 #pridedesk-알림 채널에 행위자/기존 소유자의 역할·이름과 기준 버전을 일반 텍스트로 알린다. 개인 DM이나 멘션은 사용하지 않는다.
 - 버전 확정: 설정된 `#pridedesk-알림`의 채널 ID로 프로젝트/버전/역할/이름/메모/시각을 알린다. private 파일/Drive ID/다운로드 URL은 첨부하지 않는다.
-- 기본 DM/채널 알림은 OFF. 토큰은 Worker secret `SLACK_BOT_TOKEN`만 사용한다. 이름/사용자 ID/채널 ID와 ON/OFF는 D1 설정에 보관한다.
-- 공식 API 최소 bot scopes: `chat:write`, `im:write`. 멤버 ID를 직접 입력하므로 사용자 목록/이메일/history scope는 필요 없다. bot을 채널에 초대하므로 `chat:write.public`도 불필요하다.
+- 기본 채널 알림은 OFF. 토큰은 Worker secret `SLACK_BOT_TOKEN`만 사용한다. 이름/채널 ID와 ON/OFF는 D1 설정에 보관한다.
+- 공식 API 최소 bot scopes: `chat:write`만 사용한다. DM API를 제거했으므로 `im:write` 및 사용자 목록/이메일/history scope는 필요 없다. bot을 채널에 초대하므로 `chat:write.public`도 불필요하다.
 - D1 확정 후 발송. 실패/timeout은 저장·잠금 종료를 rollback하지 않는다. audit의 notification_status와 UI 경고로 구분한다. 성공(sent), 명확한 거절(failed), 결과 불명(unknown), 설정 누락(not_configured/skipped_unlinked), OFF(skipped_off), 제한(rate_limited)을 기록한다.
-- 한 audit 이벤트당 원자적으로 발송권을 한 번만 획득한다. DM은 역할당 시간당 3회, 업로드 채널 알림은 시간당 60회. timeout은 실제 전달됐을 수도 있어 자동 재발송하지 않는다. 프로세스가 발송 도중 종료된 pending/sending 상태도 결과 미확인으로 남기며 자동 재전송하지 않는다. 메시지 전달을 보장하는 durable queue는 도입하지 않았다.
+- 한 audit 이벤트당 원자적으로 발송권을 한 번만 획득한다. 강제 종료 알림은 소유 역할당 시간당 3회, 업로드 채널 알림은 시간당 60회. timeout은 실제 전달됐을 수도 있어 자동 재발송하지 않는다. 프로세스가 발송 도중 종료된 pending/sending 상태도 결과 미확인으로 남기며 자동 재전송하지 않는다. 메시지 전달을 보장하는 durable queue는 도입하지 않았다.
 - 고정 Slack API host만 사용, 각 요청 10초 timeout, redirect 차단. 텍스트 자동 mention/링크 펼침을 비활성화한다. 원문 오류나 bot token은 응답/로그에 남기지 않는다.
 
 관리자가 할 일:
 
-1. 편집부 Slack workspace에 앱을 설치하고 Bot Token Scopes `chat:write`, `im:write`를 부여한다. scope 변경 시 재설치한다.
-2. bot을 기존 `#pridedesk-알림`에 초대하고 채널 ID를 복사한다.
-3. 두 편집자의 Slack 프로필에서 멤버 ID를 복사한다. 표시 이름/이메일을 입력하지 않는다.
-4. Worker `lions-pride-editorial-api`의 secret에 `SLACK_BOT_TOKEN`을 등록한다. 저장소·D1·브라우저에 token을 넣지 않는다.
-5. 배포 후 편집자 설정에 이름/멤버 ID/채널 ID를 저장하고 원하는 알림을 켠다. 이 PR 작업에서는 실제 Slack 메시지를 보내지 않았다.
+1. 편집부 Slack 앱의 Bot Token Scopes는 chat:write만 사용한다. 이전에 im:write를 추가했다면 제거하고 앱을 재설치한다.
+2. bot을 기존 #pridedesk-알림 채널에 초대한다.
+3. Worker lions-pride-editorial-api의 secret SLACK_BOT_TOKEN을 등록/갱신한다. 토큰을 저장소·D1·브라우저에 넣지 않는다.
+4. 운영 담당자가 편집자 설정의 접힌 **알림 채널 관리 (최초 설정)**에서 채널 ID C0C3R65U788를 한 번 저장하고 채널 알림을 켠다. 두 이벤트에 같은 채널을 사용한다. ID는 실행 코드에 하드코딩하지 않는다.
+5. 다음 기수에는 이름만 바꾸면 된다. 알림 채널은 그대로 유지되며 멤버 ID를 찾을 필요가 없다. 실제 Slack 메시지는 테스트에서 보내지 않는다.
 
-공식 근거: [conversations.open](https://docs.slack.dev/reference/methods/conversations.open/), [chat.postMessage](https://docs.slack.dev/reference/methods/chat.postMessage/), [im:write](https://docs.slack.dev/reference/scopes/im.write/).
+공식 근거: [chat.postMessage](https://docs.slack.dev/reference/methods/chat.postMessage/).
+
+### 기존 migration 호환
+
+이미 push된 0006/0007은 재작성하지 않고 새 migration도 추가하지 않는다. 0007의 legacy slack_user_id, owner_slack_user_id, dm_enabled 컬럼은 호환 목적으로 남겨 두되 API 응답에 노출하거나 새 식별자를 저장하거나 알림 대상으로 사용하지 않는다. NOT NULL인 lock 컬럼에는 빈 문자열만 기록한다. 기존 preview에 저장된 값도 알림 대상에 사용하지 않는다. 불필요한 테이블 재작성/데이터 삭제 없이 두 migration을 그대로 적용할 수 있다.
 
 ## API (모두 admin 전용)
 
