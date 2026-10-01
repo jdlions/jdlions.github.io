@@ -1,12 +1,12 @@
 import {test,expect} from '@playwright/test';
 import {pageResponse} from './page-fixture.js';
-async function setup(page,{initial=0}={}){
+async function setup(page,{initial=0,name='Shared editor'}={}){
   const calls=[],versions=initial?[{version:initial,normalized_filename:`2026_Winter_v${String(initial).padStart(3,'0')}.af`,editor_role:'chief',editor_name:'유현승',change_note:'이전 작업',file_size:4,uploaded_at:'2026-09-21T12:30:00Z'}]:[];
   let baseVersion=initial,fail=false,role='',lock=null,sequence=0,notificationStatus='sent';const audit=[];
   let settings={editors:[{role:'chief',name:'유현승'},{role:'deputy',name:'김우준'}],channelEnabled:true,channelId:'C11111111'};
   const handler=async route=>{
     const req=route.request(),path=new URL(req.url()).pathname,body=['POST','PUT'].includes(req.method())&&req.postData()&&!path.endsWith('/chunk')?req.postDataJSON():null;calls.push({path,method:req.method(),body});let data=[];
-    if(path==='/api/session')data={authenticated:true,user:{role:'admin',name:'Shared editor'}};
+    if(path==='/api/session')data={authenticated:true,user:{role:'admin',name}};
     else if(path==='/api/native/articles')data=pageResponse([]);
     else if(path==='/api/assignments')data={campaigns:[],assignments:[]};
     else if(path.endsWith('/editors'))data={editors:settings.editors,operatorRole:role};
@@ -53,5 +53,73 @@ test('stale upload preserves form; deputy sees force warning and notification fa
   page.once('dialog',d=>d.accept());await page.locator('[data-file-close]').click();await expect(page.locator('[data-file-status]')).toContainText('작업은 정상 완료');await expect(page.locator('[data-file-baseline]')).toHaveCount(0);await page.getByText('편집 작업 기록',{exact:true}).click();await expect(page.locator('[data-file-detail]')).toContainText('failed');
 });
 test('editor settings need names only and preserve the notification channel; upload needs only note/file and Slack failure is a warning',async({page})=>{
-  await page.setViewportSize({width:390,height:900});const s=await setup(page);await page.locator('[data-editor-settings]').click();await page.getByLabel('편집장 이름',{exact:true}).fill('새 편집장');await expect(page.getByLabel(/Slack 사용자/)).toHaveCount(0);await expect(page.locator('[name=channelId]')).toBeHidden();expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);await page.getByRole('button',{name:'설정 저장'}).click();await expect(page.locator('[data-file-status]')).toContainText('설정을 저장');const saved=s.calls.find(x=>x.path.endsWith('/settings')&&x.method==='PUT').body;expect(saved.editors).toEqual([{role:'chief',name:'새 편집장'},{role:'deputy',name:'김우준'}]);expect(saved.channelId).toBe('C11111111');expect(saved).not.toHaveProperty('dmEnabled');await operator(page);await page.locator('[data-file-begin]').click();await expect(page.locator('[data-file-baseline]')).toContainText('새 편집장');await expect(page.locator('[name=editorName]')).toHaveCount(0);await expect(page.locator('input[type=file]')).toHaveCount(1);s.failSlack();await choose(page);await page.locator('[data-version-form] button').click();await expect(page.locator('[data-file-status]')).toContainText('최신본으로 등록');await expect(page.locator('[data-file-status]')).toContainText('작업은 정상 완료');await expect(page.locator('[data-file-baseline]')).toHaveCount(0);
+  await page.setViewportSize({width:390,height:900});const s=await setup(page);await page.locator('[data-menu]').click();await page.locator('[data-admin-view=editor-settings]').click();await expect(page).toHaveURL(/view=editor-settings/);await page.getByLabel('편집장 이름',{exact:true}).fill('새 편집장');await expect(page.getByLabel(/Slack 사용자/)).toHaveCount(0);await expect(page.locator('[name=channelId]')).toBeHidden();expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);await page.getByRole('button',{name:'설정 저장'}).click();await expect(page.locator('[data-file-status]')).toContainText('설정을 저장');const saved=s.calls.find(x=>x.path.endsWith('/settings')&&x.method==='PUT').body;expect(saved.editors).toEqual([{role:'chief',name:'새 편집장'},{role:'deputy',name:'김우준'}]);expect(saved.channelId).toBe('C11111111');expect(saved).not.toHaveProperty('dmEnabled');await page.locator('[data-menu]').click();await page.locator('[data-admin-view=files]').click();await expect(page.locator('[data-file-begin]')).toBeVisible();await operator(page);await page.locator('[data-file-begin]').click();await expect(page.locator('[data-file-baseline]')).toContainText('새 편집장');await expect(page.locator('[name=editorName]')).toHaveCount(0);await expect(page.locator('input[type=file]')).toHaveCount(1);s.failSlack();await choose(page);await page.locator('[data-version-form] button').click();await expect(page.locator('[data-file-status]')).toContainText('최신본으로 등록');await expect(page.locator('[data-file-status]')).toContainText('작업은 정상 완료');await expect(page.locator('[data-file-baseline]')).toHaveCount(0);
+});
+async function navigateMenu(page, view){
+  if(await page.locator('[data-menu]').isVisible())await page.locator('[data-menu]').click();
+  await page.locator(`[data-admin-view="${view}"]`).click();
+  await expect(page).toHaveURL(new RegExp('view='+view));
+}
+for(const width of [390,820,1440])test('native dark options, independent settings, greeting and login layout at '+width,async({page},info)=>{
+  await page.setViewportSize({width,height:900});
+  const s=await setup(page,{name:'매우 긴 이름을 사용하는 공동 편집 담당자 '.repeat(5)});
+  const select=page.locator('[data-file-operator]');
+  await expect(page.locator('[data-editor-settings]')).toHaveCount(0);
+  await expect(select.locator('option')).toHaveText(['작업자 선택','편집장 유현승','부편집장 김우준']);
+  await expect.poll(()=>select.evaluate(el=>getComputedStyle(el).colorScheme)).toBe('dark');
+  for(const option of await select.locator('option').all()){
+    await expect(option).toHaveCSS('background-color','rgb(21, 21, 28)');
+    await expect(option).toHaveCSS('color','rgb(244, 241, 233)');
+  }
+  // Open the browser's native picker and choose both actual operators by keyboard.
+  await select.focus();await page.keyboard.press('Alt+ArrowDown');await page.screenshot({path:info.outputPath('native-options.png')});await page.keyboard.press('ArrowDown');await page.keyboard.press('Enter');
+  await expect(select).toHaveValue('chief');await expect(select).toBeEnabled();
+  await select.focus();await page.keyboard.press('Alt+ArrowDown');await page.keyboard.press('ArrowDown');await page.keyboard.press('Enter');
+  await expect(select).toHaveValue('deputy');await expect(select).toBeEnabled();
+  await select.focus();await page.keyboard.press('Alt+ArrowDown');
+  const box=await select.boundingBox();await page.mouse.move(box.x+40,box.y+box.height+45);
+  await page.screenshot({path:info.outputPath('native-hover.png')});await page.keyboard.press('Escape');
+  await expect(select).toHaveValue('deputy');
+  await select.hover();await select.focus();expect(await select.evaluate(el=>getComputedStyle(el).outlineStyle)).not.toBe('none');
+  await expect(page.locator('[data-user-greeting]')).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+  await page.screenshot({path:info.outputPath('admin-files.png'),fullPage:true});
+  await navigateMenu(page,'editor-settings');await expect(page.getByRole('heading',{name:'편집자 설정',exact:true})).toBeVisible();
+  await expect(page.locator('[data-file-operator]')).toHaveCount(0);
+  if(width===390)await expect(page.locator('[data-menu]')).toHaveAttribute('aria-expanded','false');
+  await page.getByText('알림 채널 관리 (최초 설정)',{exact:true}).click();
+  await expect(page.locator('[name=channelId]')).toHaveValue('C11111111');
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+  await page.screenshot({path:info.outputPath('editor-settings.png'),fullPage:true});
+  expect(s.calls.filter(x=>x.path.endsWith('/settings'))).toHaveLength(1);
+  await page.goBack();await expect(select).toHaveValue('deputy');
+  await page.goForward();await expect(page.getByLabel('편집장 이름',{exact:true})).toHaveValue('유현승');
+  await page.reload();await expect(page.getByLabel('부편집장 이름',{exact:true})).toHaveValue('김우준');
+  await page.route('**/api/session',r=>r.fulfill({json:{authenticated:false}}));
+  await page.goto('/login/');await expect(page.locator('.editorial-footer--login')).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+  await page.screenshot({path:info.outputPath('login.png'),fullPage:true});
+});
+test('greeting uses local time boundaries, missing names and updates without reload',async({page})=>{
+  await page.clock.install({time:new Date(2026,9,2,10,59,30)});await setup(page,{name:'  편집자  '});
+  await expect(page.locator('[data-user-greeting]')).toHaveText('좋은 아침이에요, 편집자님.');
+  await page.clock.runFor(60000);await expect(page.locator('[data-user-greeting]')).toHaveText('오늘도 반가워요, 편집자님.');
+  const values=await page.evaluate(async()=>{const {userGreeting}=await import('/assets/js/shared/shell.js');return {hours:[0,4,5,10,11,17,18,21,22,23].map(h=>userGreeting('홍길동',new Date(2026,9,2,h))),fallback:[undefined,null,'', '  '].map(n=>userGreeting(n,new Date(2026,9,2,12)))};});
+  expect(values.hours).toEqual(['늦은 시간이네요','늦은 시간이네요','좋은 아침이에요','좋은 아침이에요','오늘도 반가워요','오늘도 반가워요','좋은 저녁이에요','좋은 저녁이에요','늦은 시간이네요','늦은 시간이네요'].map(x=>x+', 홍길동님.'));
+  expect(values.fallback).toEqual(Array(4).fill('오늘도 반가워요.'));
+});
+test('independent settings retries load/save failures and blocks navigation during save',async({page})=>{
+  await setup(page);let fail=true,pending;
+  await page.route('**/editorial-files/settings',async r=>{
+    if(r.request().method()==='PUT'){pending=r;return;}
+    if(fail)return r.fulfill({status:503,json:{error:{message:'설정 조회 실패'}}});
+    return r.fallback();
+  });
+  await navigateMenu(page,'editor-settings');await expect(page.getByText('설정 조회 실패')).toBeVisible();
+  fail=false;await page.getByRole('button',{name:'다시 시도'}).click();await page.getByLabel('편집장 이름',{exact:true}).fill('변경 이름');
+  await page.getByRole('button',{name:'설정 저장'}).click();await expect.poll(()=>Boolean(pending)).toBe(true);
+  await page.locator('[data-admin-view=files]').click();await expect(page).toHaveURL(/view=editor-settings/);
+  await pending.fulfill({status:503,json:{error:{message:'설정 저장 실패'}}});
+  await expect(page.locator('[data-file-status]')).toHaveText('설정 저장 실패');await expect(page.getByLabel('편집장 이름',{exact:true})).toHaveValue('변경 이름');
+  await expect(page.getByRole('button',{name:'설정 저장'})).toBeEnabled();
 });

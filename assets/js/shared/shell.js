@@ -7,9 +7,27 @@ function loadLiquidGlassTheme() {
   link.dataset.liquidGlassTheme = '';
   document.head.append(link);
 }
+export function userGreeting(name, now = new Date()) {
+  const hour = now.getHours();
+  const greeting = hour >= 5 && hour < 11 ? '좋은 아침이에요' : hour >= 11 && hour < 18 ? '오늘도 반가워요' : hour >= 18 && hour < 22 ? '좋은 저녁이에요' : '늦은 시간이네요';
+  const displayName = typeof name === 'string' ? name.trim() : '';
+  return displayName ? `${greeting}, ${displayName}님.` : `${greeting}.`;
+}
 export function initShell(session, area) {
   loadLiquidGlassTheme();
   document.querySelectorAll('[data-user-name]').forEach(el=>el.textContent=session?.name || 'Public visitor');
+  const greeting = document.querySelector('[data-user-greeting]');
+  if (greeting) {
+    const update = () => {
+      const text = userGreeting(session?.name);
+      if (greeting.textContent !== text) greeting.textContent = text;
+      greeting.title = text;
+    };
+    update();
+    // One minute is sufficient for time-of-day changes; resume immediately after sleep.
+    window.setInterval(update, 60000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) update(); });
+  }
   document.querySelectorAll('[data-area]').forEach(el=>el.textContent=area);
   document.querySelector('[data-logout]')?.addEventListener('click',async()=>{await authService.logout(); location.replace('/editorial/login/');});
   document.querySelectorAll('[data-student-view],[data-admin-view]').forEach(button=>button.addEventListener('click',()=>{const sidebar=document.querySelector('.app-sidebar');if(sidebar?.classList.contains('is-open')){sidebar.classList.remove('is-open');document.querySelector('[data-menu]')?.setAttribute('aria-expanded','false');document.querySelector('#main')?.focus();}}));
