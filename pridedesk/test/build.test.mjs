@@ -42,3 +42,19 @@ test('cache policy grants freshness only to the public static asset namespace',a
   }
   for(const path of ['/assets/js/config.js','/assets/css/editorial.css','/assets/images/pridedesk-logo.webp'])assert.equal(cacheFor(path)['Cache-Control'],'public, max-age=3600, must-revalidate');
 });
+
+test('HTML, imported modules and dynamic theme use one content-versioned asset graph', async () => {
+  const admin = await readFile(resolve(output,'admin/index.html'),'utf8');
+  const prefix = admin.match(/\.\.\/(assets\/build-[a-f0-9]{16}\/)js\/admin\/admin-app.js/)[1];
+  for(const page of ['login','admin','student']){
+    const html=await readFile(resolve(output,page,'index.html'),'utf8');
+    const refs=[...html.matchAll(/(?:src|href)="(\.\.\/assets\/[^\"]+)"/g)].map(m=>m[1]);
+    assert(refs.length>0);
+    assert(refs.every(ref=>ref.startsWith('../'+prefix)));
+  }
+  const files=await readdir(resolve(output,'assets'),{recursive:true});
+  assert(files.filter(f=>/\.(js|css|png|webp)$/.test(f)).every(f=>f.replaceAll('\\','/').startsWith(prefix.slice(7))));
+  const shell=await readFile(resolve(output,prefix,'js/shared/shell.js'),'utf8');
+  assert(shell.includes(`../${prefix}css/editorial-liquid-glass.css`));
+  assert.doesNotMatch(shell,/\.\.\/assets\/css\//);
+});

@@ -93,6 +93,8 @@ test('unavailable archive blocks publishing and offers retry without breaking th
 for (const failure of ['none', 'api', 'json']) test('public archive preserves all legacy rows with ' + failure + ' failure', async ({ page }) => {
   await page.route('**/archive-test', route => route.fulfill({ contentType: 'text/html', body: source('index.html') }));
   await page.route('**/assets/js/public/archive.js', route => route.fulfill({ contentType: 'text/javascript', body: source('assets/js/public/archive.js') }));
+  // Public Pages keeps its own URLs; do not borrow unversioned Vercel build files.
+  for(const file of ['ui.js','issue-publication.js'])await page.route('**/assets/js/shared/'+file,route=>route.fulfill({contentType:'text/javascript',body:source('assets/js/shared/'+file)}));
   await page.route('**/data/issues.json', route => route.fulfill({ status: failure === 'json' ? 503 : 200, json: legacy }));
   const issue = { ...legacy[0], number: 35, label: 'No.35', year: 2025, title: 'New issue <script>unsafe()</script>', url: drive };
   await page.route('**/api/public/issues', route => route.fulfill({ status: failure === 'api' ? 503 : 200, headers: { 'Access-Control-Allow-Origin': '*' }, json: [issue, ...legacy] }));
