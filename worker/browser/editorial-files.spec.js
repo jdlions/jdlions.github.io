@@ -104,7 +104,7 @@ test('greeting uses local time boundaries, missing names and updates without rel
   await page.clock.install({time:new Date(2026,9,2,10,59,30)});await setup(page,{name:'  편집자  '});
   await expect(page.locator('[data-user-greeting]')).toHaveText('좋은 아침이에요, 편집자님.');
   await page.clock.runFor(60000);await expect(page.locator('[data-user-greeting]')).toHaveText('오늘도 반가워요, 편집자님.');
-  const values=await page.evaluate(async()=>{const {userGreeting}=await import('/assets/js/shared/shell.js');return {hours:[0,4,5,10,11,17,18,21,22,23].map(h=>userGreeting('홍길동',new Date(2026,9,2,h))),fallback:[undefined,null,'', '  '].map(n=>userGreeting(n,new Date(2026,9,2,12)))};});
+  const values=await page.evaluate(async()=>{const {userGreeting}=await import(new URL('../shared/shell.js',document.querySelector('script[type=module]').src).href);return {hours:[0,4,5,10,11,17,18,21,22,23].map(h=>userGreeting('홍길동',new Date(2026,9,2,h))),fallback:[undefined,null,'', '  '].map(n=>userGreeting(n,new Date(2026,9,2,12)))};});
   expect(values.hours).toEqual(['늦은 시간이네요','늦은 시간이네요','좋은 아침이에요','좋은 아침이에요','오늘도 반가워요','오늘도 반가워요','좋은 저녁이에요','좋은 저녁이에요','늦은 시간이네요','늦은 시간이네요'].map(x=>x+', 홍길동님.'));
   expect(values.fallback).toEqual(Array(4).fill('오늘도 반가워요.'));
 });
