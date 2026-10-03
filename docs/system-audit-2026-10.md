@@ -22,7 +22,7 @@
 |Medium|동일 인증 사용자의 cold/만료된 membership 동시 요청이 Google 조회를 반복|동일 course/user/credential의 진행 중 요청만 공유. 기존 5분 TTL 유지, 실패는 캐시하지 않고 만료된 권한으로 우회하지 않음|
 |Medium|편집 파일 조회 5개 D1 읽기가 직렬 실행|project 조회 후 latest/history/lock/audit만 병렬화. mutation 순서/lock/CAS는 변경 없음|
 |Medium|완료 버전 조회가 기존 partial index 조건을 인식하지 못해 scan/sort|동치 조건 `state!='cancelled'`를 명시하여 0006의 기존 index 활용. 새 index/migration 없음|
-|Low|깨진 URL 인코딩 cookie가 인증 실패 대신 500 유발|cookie 파싱 실패를 미인증으로 처리. Google 호출 없이 401 회귀 검증|
+|Low|깨진 URL 인코딩 cookie가 인증 실패 대신 500 유발|영향은 해당 요청/브라우저에 국한되고 권한 우회는 없음. Low 항목은 보고만 한다는 범위에 따라 기존 처리 유지|
 
 관리자 과제 API의 campaigns/assignments도 독립적으로 조회한다. 의존성이 있는 Drive 업로드/예약/finalize 순서는 그대로 유지했다.
 삭제 보상 제거로 더 이상 참조되지 않는 `deleteDriveFile`만 제거했다. DM/Member ID/SENS/SMS/이메일 알림 runtime은 발견되지 않았다. 0007의 legacy 호환 컬럼은 유지했다.

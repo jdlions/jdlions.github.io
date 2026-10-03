@@ -27,8 +27,7 @@ export async function unseal(value, secret) {
 
 export function cookie(request, name) {
   const match = request.headers.get('Cookie')?.split(';').map(x => x.trim()).find(x => x.startsWith(`${name}=`));
-  try { return match ? decodeURIComponent(match.slice(name.length + 1)) : null; }
-  catch { return null; } // A malformed cookie is unauthenticated, not a server failure.
+  return match ? decodeURIComponent(match.slice(name.length + 1)) : null;
 }
 
 export function setCookie(name, value, maxAge) {
