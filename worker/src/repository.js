@@ -57,7 +57,7 @@ export class D1EditorialRepository {
     if(!campaigns.length)return [];
     const [slots,targets]=await Promise.all([
       this.db.prepare('SELECT s.* FROM assignment_slots s JOIN assignment_campaigns c ON c.id=s.campaign_id'+where+' ORDER BY s.position,s.id').bind(...args).all(),
-      this.db.prepare('SELECT t.campaign_id,t.student_id FROM assignment_targets t JOIN assignment_campaigns c ON c.id=t.campaign_id'+where+' ORDER BY t.campaign_id,t.student_id').bind(...args).all()
+      studentId ? Promise.resolve({results:[]}) : this.db.prepare('SELECT t.campaign_id,t.student_id FROM assignment_targets t JOIN assignment_campaigns c ON c.id=t.campaign_id'+where+' ORDER BY t.campaign_id,t.student_id').bind(...args).all()
     ]);
     const byId=new Map(campaigns.map(c=>[c.id,Object.assign(c,{slots:[],recipientStudentIds:[]})]));
     for(const slot of slots.results)byId.get(slot.campaign_id)?.slots.push(parseSlot(slot));

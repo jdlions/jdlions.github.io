@@ -189,3 +189,55 @@ test('0007 upgrade preserves completed 0006 history and invalidates only tab-bas
   sql.exec(readFileSync(new URL('../migrations/0007_editorial_checkout.sql',import.meta.url),'utf8'));
   assert.equal(sql.prepare("SELECT state FROM editorial_versions WHERE id='v1'").get().state,'complete');assert.equal(sql.prepare("SELECT state FROM editorial_versions WHERE id='pending'").get().state,'cancelled');assert.equal(sql.prepare('SELECT latest_version FROM editorial_projects').get().latest_version,1);assert.equal(sql.prepare('SELECT COUNT(*) n FROM editorial_versions').get().n,2);assert.deepEqual(sql.prepare('PRAGMA foreign_key_check').all(),[]);
 });
+
+test('failure inside finalize batch rolls back all rows and retries the same Drive object',async t=>{
+  const f=fixture();t.after(()=>f.sql.close());const p=await f.project(),lock=(await f.repo.begin(p,'shared-editor')).lock;
+  const s=await f.repo.upload(p,'shared-editor',input(lock.id),'token');await f.repo.progress(s.id,'shared-editor','token',bytes,0);
+  f.sql.exec("CREATE TRIGGER injected_failure BEFORE UPDATE OF latest_version ON editorial_projects BEGIN SELECT RAISE(ABORT,'injected failure'); END");
+  await assert.rejects(f.repo.finish(s.id,'shared-editor','token'),/injected failure/);
+  assert.equal(f.sql.prepare('SELECT state FROM editorial_versions WHERE id=?').get(s.id).state,'uploading');
+  assert.equal((await f.repo.detail(p)).latest,null);assert.equal((await f.repo.detail(p)).lock.id,lock.id);
+  assert.equal(f.sql.prepare('SELECT COUNT(*) n FROM editorial_lock_audit').get().n,0);
+  f.sql.exec('DROP TRIGGER injected_failure');
+  assert.equal((await f.repo.finish(s.id,'shared-editor','token')).version,1);assert.equal(f.files.size,1);
+  assert.equal((await f.repo.finish(s.id,'shared-editor','token')).version,1);
+});
+
+test('simultaneous upload initialization, missing/out-of-order chunks and retries preserve one reservation',async t=>{
+  const f=fixture();t.after(()=>f.sql.close());const p=await f.project(),lock=(await f.repo.begin(p,'shared-editor')).lock;
+  const data=new Uint8Array(CHUNK_BYTES+4).fill(7),x=input(lock.id,{fileSize:data.length,contentHash:await fileFingerprint(new Blob([data]))});
+  const starts=await Promise.all([f.repo.upload(p,'shared-editor',x,'token'),f.repo.upload(p,'shared-editor',x,'token')]);
+  assert.equal(starts[0].id,starts[1].id);const id=starts[0].id;
+  await assert.rejects(f.repo.progress(id,'shared-editor','token',data.slice(CHUNK_BYTES),CHUNK_BYTES),{status:409});
+  await assert.rejects(f.repo.finish(id,'shared-editor','token'),{status:409});
+  await f.repo.progress(id,'shared-editor','token',data.slice(0,CHUNK_BYTES),0);
+  await f.repo.progress(id,'shared-editor','token',data.slice(0,CHUNK_BYTES),0);
+  await f.repo.progress(id,'shared-editor','token',data.slice(CHUNK_BYTES),CHUNK_BYTES);
+  assert.equal((await f.repo.finish(id,'shared-editor','token')).version,1);assert.equal(f.files.size,1);
+  assert.equal(f.sql.prepare('SELECT COUNT(*) n FROM editorial_versions').get().n,1);
+});
+
+test('cancel during Drive verification prevents commit but preserves every original',async t=>{
+  const f=fixture();t.after(()=>f.sql.close());const p=await f.project(),lock=(await f.repo.begin(p,'shared-editor')).lock;
+  const s=await f.repo.upload(p,'shared-editor',input(lock.id),'token');await f.repo.progress(s.id,'shared-editor','token',bytes,0);
+  const metadata=f.drive.metadata;
+  f.drive.metadata=async id=>{await f.repo.checkout.close(lock.id,await f.repo.checkout.actor('chief','shared-editor'),false,'편집 취소',{});return metadata(id);};
+  await assert.rejects(f.repo.finish(s.id,'shared-editor','token'),{status:409});
+  const d=await f.repo.detail(p);assert.equal(d.latest,null);assert.equal(d.lock,null);assert.equal(d.pendingId,null);assert.equal(d.audit.length,1);assert.equal(f.files.size,1);
+});
+
+test('editorial detail overlaps independent reads while keeping the project prerequisite',async t=>{
+  const f=fixture();t.after(()=>f.sql.close());const p=await f.project();await f.upload(p);
+  const prepare=f.db.prepare;let active=0,peak=0,count=0;
+  f.db.prepare=query=>{
+    const stmt=prepare(query);
+    for(const method of ['first','all']){const run=stmt[method];stmt[method]=async()=>{
+      count++;active++;peak=Math.max(peak,active);await new Promise(r=>setTimeout(r,20));
+      try{return await run();}finally{active--;}
+    };}
+    return stmt;
+  };
+  const start=performance.now(),d=await f.repo.detail(p),ms=performance.now()-start;
+  assert.equal(d.latest.version,1);assert.equal(count,5);assert.equal(peak,4);
+  console.log('editorial read waves',JSON.stringify({queries:count,beforeWaves:5,afterWaves:2,injectedLatencyMs:20,afterMs:Math.round(ms)}));
+});

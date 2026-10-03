@@ -61,7 +61,7 @@
 
 배포 후 관리자는 같은 Worker origin에서 로그인한 상태로 `GET /api/photos/folder-status`를 호출해 자신의 현재 토큰 기준 `accessible`, `canAddChildren`, `storage`(`my_drive` 또는 `shared_drive`)만 확인할 수 있습니다. 응답은 폴더 ID와 폴더 이름을 노출하지 않습니다. 학생에게는 이 진단 endpoint가 허용되지 않습니다. 실제 학생 권한은 반드시 학생 계정으로 제출하거나 학생 토큰의 preflight로 확인해야 합니다.
 
-Drive 업로드가 성공한 뒤에만 D1 사진 metadata를 생성합니다. D1 저장이 실패하면 Worker가 방금 만든 Drive 파일을 즉시 삭제하며, 삭제도 실패한 경우에는 토큰·파일 내용·이메일·Google 원문 오류 없이 안정적인 `drive_orphan_cleanup_failed` 코드와 status만 로그에 남깁니다.
+Drive 업로드가 성공한 뒤에만 D1 사진 metadata를 생성합니다. INSERT 이후 응답 조회나 연결만 실패했을 수도 있으므로, 저장 결과가 불확실해도 Drive 원본을 자동 삭제하지 않습니다. `photo_metadata_save_failed` 응답은 원본 보존과 제출 목록 재확인을 안내합니다. D1에 등록되지 않은 원본이 남을 수 있으며, 자동 재업로드·삭제로 결과를 추정하지 않습니다.
 
 ### 공개 Archive 발행
 
