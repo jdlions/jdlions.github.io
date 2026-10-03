@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {readFileSync,readdirSync} from 'node:fs';
-import worker from '../src/index.js';
+import worker,{createPhotoAfterDrive} from '../src/index.js';
 import {seal,SESSION_COOKIE} from '../src/security.js';
 import {D1EditorialRepository} from '../src/repository.js';
 function fixture(){
@@ -12,6 +12,18 @@ function fixture(){
  const db={prepare(query){let args=[];const exec=fn=>{queries.push(query);return sql.prepare(query)[fn](...args);};const stmt={bind(...values){args=values;return stmt;},first:async()=>exec('get'),all:async()=>({results:exec('all')}),run:async()=>exec('run')};return stmt;},async batch(items){return Promise.all(items.map(x=>x.run()));}};
  return {sql,db,queries,repo:new D1EditorialRepository(db)};
 }
+
+test('committed photo metadata survives a failed response read without deleting its original',async t=>{
+ const f=fixture();t.after(()=>f.sql.close());
+ const article=await f.repo.createNativeArticle({articleType:'school',titleKo:'Fixture',titleEn:'',contentHtml:''},'student');
+ const prepare=f.db.prepare;
+ f.db.prepare=query=>{const stmt=prepare(query);if(query==='SELECT * FROM photos WHERE id=?')stmt.first=async()=>{throw new Error('read connection lost after INSERT');};return stmt;};
+ let driveCalls=0;t.mock.method(globalThis,'fetch',async()=>{driveCalls++;throw new Error('No destructive cleanup allowed');});
+ const photo={issueId:'native',articleSubmissionId:article.id,articleId:article.id,studentGoogleId:'student',driveFileId:'fixture-private-original',filename:'fixture.png',mimeType:'image/png',byteSize:4,caption:'',photographer:'',sourceType:'',rightsConfirmed:true};
+ await assert.rejects(createPhotoAfterDrive(f.repo,photo),e=>e.code==='photo_metadata_save_failed');
+ assert.equal(f.sql.prepare('SELECT COUNT(*) n FROM photos WHERE drive_file_id=?').get(photo.driveFileId).n,1);
+ assert.equal(driveCalls,0);
+});
 async function legacyCampaigns(repo,studentId){
  let q='SELECT DISTINCT c.* FROM assignment_campaigns c',args=[];
  if(studentId){q+=' JOIN assignment_recipients r ON r.campaign_id=c.id WHERE r.student_id=?';args.push(studentId);}
@@ -27,9 +39,31 @@ for(const n of [0,1,10])test('assignment query count and identical response with
  for(const studentId of [undefined,'student','outsider']){
   f.queries.length=0;const before={campaigns:await legacyCampaigns(f.repo,studentId),assignments:await f.repo.listAssignments(studentId)},beforeCount=f.queries.length;
   f.queries.length=0;const after={campaigns:await f.repo.listCampaigns(studentId),assignments:await f.repo.listAssignments(studentId)},afterCount=f.queries.length;
-  assert.deepEqual(after,before);assert.equal(beforeCount,3*before.campaigns.length+2);assert.equal(afterCount,before.campaigns.length?4:2);
+  if(studentId)for(const campaign of before.campaigns)campaign.recipientStudentIds=[];
+  assert.deepEqual(after,before);assert.equal(beforeCount,3*before.campaigns.length+2);assert.equal(afterCount,before.campaigns.length?(studentId?3:4):2);
   console.log('queries',JSON.stringify({campaigns:n,viewer:studentId||'admin',before:beforeCount,after:afterCount}));
  }f.sql.close();
+});
+
+test('student assignment HTTP response never exposes other recipients; admin retains distribution settings',async t=>{
+ const f=fixture();t.after(()=>f.sql.close());
+ const c=await f.repo.createCampaign({name:'Visible assignment',year:2026,issueLabel:'',issueId:null,instructions:'Keep instructions',startsAt:null,dueAt:null,audienceMode:'selected',recipientStudentIds:['student-a','private-student-b'],slots:[{articleType:'school',displayName:'School',required:true,quantity:1,dueAt:null,instructions:'Keep slot'}]},'admin');
+ await f.repo.distributeCampaign(c,[{id:'student-a',name:'Fixture A'},{id:'private-student-b',name:'Private B'}]);
+ t.mock.method(globalThis,'fetch',async(url,init)=>{
+   const admin=init.headers.Authorization.endsWith('admin');
+   if(String(url).includes('userProfiles'))return Response.json({id:admin?'admin':'student-a'});
+   if(String(url).includes('/teachers/')&&!admin)return new Response('',{status:404});
+   return Response.json({userId:admin?'admin':'student-a'});
+ });
+ const env={DB:f.db,SESSION_SECRET:'audit-fixture',NEWSPAPER_CLASSROOM_ID:'audit-privacy'};
+ for(const role of ['student','admin']){
+   const token=await seal({sub:role,courseId:env.NEWSPAPER_CLASSROOM_ID,accessToken:role,exp:Date.now()+60000},env.SESSION_SECRET);
+   const response=await worker.fetch(new Request('https://local.test/api/assignments',{headers:{Cookie:SESSION_COOKIE+'='+token}}),env);
+   assert.equal(response.status,200);assert.match(response.headers.get('Cache-Control'),/no-store/);
+   const data=await response.json();assert.equal(data.campaigns[0].instructions,'Keep instructions');
+   if(role==='student'){assert.doesNotMatch(JSON.stringify(data),/private-student-b|Private B/);assert.equal(data.assignments.length,1);assert.deepEqual(data.campaigns[0].recipientStudentIds,[]);}
+   else assert(data.campaigns[0].recipientStudentIds.includes('private-student-b'));
+ }
 });
 test('summary preserves metadata/preview but excludes bodies and private fields; detail unchanged',async t=>{
  const f=fixture(),draft='<p>'+('Sample words &amp; text '.repeat(1500))+'</p>';

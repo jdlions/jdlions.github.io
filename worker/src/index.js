@@ -1,7 +1,7 @@
 import { clearCookie, cookie, randomToken, requireTrustedOrigin, sanitizeHtml, seal, setCookie, STATE_COOKIE, SESSION_COOKIE, unseal } from './security.js';
 import {articleListOptions,listArticlePage} from './article-list.js';
 import {routeEditorialFiles} from './editorial-files.js';
-import { classroom, driveThumbnail, deleteDriveFile, driveFolderPreflight, exchangeCode, resolveMembership, streamDriveImage, uploadToDrive, userInfo } from './google.js';
+import { classroom, driveThumbnail, driveFolderPreflight, exchangeCode, resolveMembership, streamDriveImage, uploadToDrive, userInfo } from './google.js';
 import { repository } from './repository.js';
 import { DOCX_MIME, MAX_DOCX_BYTES, parseDocx } from './docx.js';
 import { pridedeskRequest } from './pridedesk-proxy.js';
@@ -10,6 +10,23 @@ import { IssuePublications, publicArchiveResponse } from './issue-publications.j
 const SESSION_SECONDS = 45 * 60;
 const MEMBERSHIP_CACHE_MS = 5 * 60 * 1000;
 const membershipCache = new Map();
+const membershipRequests = new Map();
+async function verifiedMembership(value, env) {
+  const key=`${value.courseId}:${value.sub}`,cached=membershipCache.get(key);
+  if(cached?.expiresAt>Date.now())return cached.value;
+  // Only share in-flight checks for the same authenticated credential. Never
+  // cache a rejection or extend the existing five-minute authorization window.
+  const requestKey=key+':'+value.accessToken;
+  if(!membershipRequests.has(requestKey)){
+    const pending=resolveMembership(env.NEWSPAPER_CLASSROOM_ID,value.accessToken).then(membership=>{
+      for(const [id,entry] of membershipCache)if(entry.expiresAt<=Date.now())membershipCache.delete(id);
+      membershipCache.set(key,{value:membership,expiresAt:Date.now()+MEMBERSHIP_CACHE_MS});
+      return membership;
+    }).finally(()=>membershipRequests.delete(requestKey));
+    membershipRequests.set(requestKey,pending);
+  }
+  return membershipRequests.get(requestKey);
+}
 const allowedPhotoTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
 export function validateStudentPhoto(file, articleSubmissionId, articles) {
   if (!articles.some(article => article.id === articleSubmissionId)) throw Object.assign(new Error('Select one of your own article submissions.'), { status: 403, code: 'article_forbidden' });
@@ -37,9 +54,7 @@ async function session(request, env, verifyMembership = true) {
   const value = sealed && await unseal(sealed, env.SESSION_SECRET);
   if (!value || value.exp <= Date.now() || value.courseId !== env.NEWSPAPER_CLASSROOM_ID) throw Object.assign(new Error('Authentication required.'), { status: 401, code: 'authentication_required' });
   if (verifyMembership) {
-    const key=`${value.courseId}:${value.sub}`,cached=membershipCache.get(key);
-    const membership=cached?.expiresAt>Date.now()?cached.value:await resolveMembership(env.NEWSPAPER_CLASSROOM_ID,value.accessToken);
-    if(!cached||cached.expiresAt<=Date.now())membershipCache.set(key,{value:membership,expiresAt:Date.now()+MEMBERSHIP_CACHE_MS});
+    const membership=await verifiedMembership(value,env);
     value.role = membership.role; value.studentId = membership.studentId; value.classroomUserId = membership.classroomUserId;
   }
   return value;
@@ -135,12 +150,12 @@ async function routeEditorial(request, env, pathname) {
   return env.ASSETS.fetch(request);
 }
 
-export async function createPhotoAfterDrive(repo, photo, token, remove = deleteDriveFile) {
+export async function createPhotoAfterDrive(repo, photo) {
   try { return await repo.createPhoto(photo); }
   catch (error) {
-    try { await remove(photo.driveFileId, token); }
-    catch (cleanupError) { console.error(JSON.stringify({ code: 'drive_orphan_cleanup_failed', status: cleanupError.status || 502 })); }
-    throw Object.assign(new Error('Photo metadata could not be saved. Please try again.'), { status: 503, code: 'photo_metadata_save_failed' });
+    // INSERT may have committed before a read/network failure. Deleting the
+    // original here could leave a durable photo record pointing at a lost file.
+    throw Object.assign(new Error('사진 저장 결과를 확인할 수 없습니다. Drive 원본은 보존했습니다. 제출 목록을 새로고침해 확인한 뒤 다시 시도해 주세요.'), { status: 503, code: 'photo_metadata_save_failed' });
   }
 }
 
@@ -194,7 +209,11 @@ async function routeApi(request, env, pathname) {
       return ok(result, env, result.replayed ? 200 : 201);
     }
   }
-  if(pathname==='/api/assignments'&&request.method==='GET')return ok({campaigns:await repo.listCampaigns(viewer.role==='student'?viewer.studentId:null),assignments:await repo.listAssignments(viewer.role==='student'?viewer.studentId:null)},env);
+  if(pathname==='/api/assignments'&&request.method==='GET'){
+    const studentId=viewer.role==='student'?viewer.studentId:null;
+    const [campaigns,assignments]=await Promise.all([repo.listCampaigns(studentId),repo.listAssignments(studentId)]);
+    return ok({campaigns,assignments},env);
+  }
   if(pathname==='/api/assignments'&&request.method==='POST'){requireAdmin(viewer);return ok(await repo.createCampaign(validateCampaign(await request.json()),viewer.sub),env,201);}
   const assignmentUpdate=pathname.match(/^\/api\/assignments\/([^/]+)$/);
   if(assignmentUpdate&&request.method==='PATCH'){requireAdmin(viewer);const current=await repo.getCampaign(assignmentUpdate[1]);if(!current)throw Object.assign(new Error('Assignment not found.'),{status:404,code:'assignment_not_found'});const input=await request.json(),validated=validateCampaign({...current,...input,slots:current.slots});if(!['draft','active','closed'].includes(input.status||current.status))throw Object.assign(new Error('Invalid assignment status.'),{status:400,code:'invalid_assignment'});return ok(await repo.updateCampaign(current.id,{...validated,status:input.status||current.status}),env);}
@@ -242,7 +261,7 @@ async function routeApi(request, env, pathname) {
   if(photoContent&&request.method==='GET'){const photo=await authorizePhotoViewer(repo,photoContent[1],viewer);return photoContentResponse(photo,viewer.accessToken);}
   const photoOriginal=pathname.match(/^\/api\/photos\/([^/]+)\/original$/);
   if(photoOriginal&&request.method==='GET'){const photo=await authorizePhotoViewer(repo,photoOriginal[1],viewer);return new Response(null,{status:302,headers:{Location:`https://drive.google.com/open?id=${encodeURIComponent(photo.drive_file_id)}`,'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer'}});}
-  if(pathname==='/api/photos/upload'&&request.method==='POST'){requireStudent(viewer);const form=await request.formData(),file=form.get('file'),articleSubmissionId=String(form.get('articleSubmissionId')||''),native=await repo.getNativeArticle(articleSubmissionId);if(form.get('copyright')!=='true')throw Object.assign(new Error('Rights confirmation is required.'),{status:400,code:'rights_confirmation_required'});validateStudentPhoto(file,articleSubmissionId,native?.studentId===viewer.studentId?[native]:[]);const drive=await uploadToDrive(file,env.DRIVE_UPLOAD_FOLDER_ID,viewer.accessToken);const photo={issueId:native.issueId||'native',articleSubmissionId,articleId:articleSubmissionId,studentGoogleId:viewer.studentId,driveFileId:drive.id,filename:drive.name,mimeType:drive.mimeType,byteSize:Number(drive.size||file.size),caption:String(form.get('caption')||'').slice(0,1000),photographer:String(form.get('photographer')||'').slice(0,200),sourceType:String(form.get('sourceType')||'').slice(0,100),rightsConfirmed:true};return ok(photoForClient(await createPhotoAfterDrive(repo,photo,viewer.accessToken)),env,201);}
+  if(pathname==='/api/photos/upload'&&request.method==='POST'){requireStudent(viewer);const form=await request.formData(),file=form.get('file'),articleSubmissionId=String(form.get('articleSubmissionId')||''),native=await repo.getNativeArticle(articleSubmissionId);if(form.get('copyright')!=='true')throw Object.assign(new Error('Rights confirmation is required.'),{status:400,code:'rights_confirmation_required'});validateStudentPhoto(file,articleSubmissionId,native?.studentId===viewer.studentId?[native]:[]);const drive=await uploadToDrive(file,env.DRIVE_UPLOAD_FOLDER_ID,viewer.accessToken);const photo={issueId:native.issueId||'native',articleSubmissionId,articleId:articleSubmissionId,studentGoogleId:viewer.studentId,driveFileId:drive.id,filename:drive.name,mimeType:drive.mimeType,byteSize:Number(drive.size||file.size),caption:String(form.get('caption')||'').slice(0,1000),photographer:String(form.get('photographer')||'').slice(0,200),sourceType:String(form.get('sourceType')||'').slice(0,100),rightsConfirmed:true};return ok(photoForClient(await createPhotoAfterDrive(repo,photo)),env,201);}
   throw Object.assign(new Error('API route not found.'), { status: 404, code: 'not_found' });
 }
 

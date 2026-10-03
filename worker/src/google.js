@@ -159,8 +159,3 @@ export async function uploadToDrive(file, folderId, token) {
   if (!response.ok) { const safe = await safeDriveError(response); throw driveAppError('upload', safe.upstreamStatus, safe.reason); }
   return response.json();
 }
-
-export async function deleteDriveFile(fileId, token) {
-  const response = await fetchGoogle(`${GOOGLE_API}/drive/v3/files/${encodeURIComponent(fileId)}?supportsAllDrives=true`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
-  if (!response.ok && response.status !== 404) { const safe = await safeDriveError(response); throw driveAppError('delete', safe.upstreamStatus, safe.reason); }
-}

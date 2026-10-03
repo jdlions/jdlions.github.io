@@ -31,9 +31,15 @@ export class EditorialFiles {
   }
   async detail(id,before=Number.MAX_SAFE_INTEGER){
     const p=await this.project(id);
-    const latest=await this.stmt("SELECT * FROM editorial_versions WHERE project_id=? AND version=? AND state='complete'",id,p.latest_version).first();
-    const history=(await this.stmt("SELECT * FROM editorial_versions WHERE project_id=? AND state='complete' AND version<? ORDER BY version DESC LIMIT 51",id,before).all()).results;
-    return {id:p.id,year:p.year,season:p.season,latest:publicVersion(latest),pendingId:p.pending_id,lock:await this.checkout.active(id),audit:await this.checkout.audit(id),versions:history.slice(0,50).map(publicVersion),nextBefore:history.length>50?history[49].version:null};
+    // Repeat the partial-index predicate explicitly: SQLite does not infer
+    // state!='cancelled' from state='complete'. No additional index is needed.
+    const [latest,historyResult,lock,audit]=await Promise.all([
+      this.stmt("SELECT * FROM editorial_versions WHERE project_id=? AND version=? AND state='complete' AND state!='cancelled'",id,p.latest_version).first(),
+      this.stmt("SELECT * FROM editorial_versions WHERE project_id=? AND state='complete' AND state!='cancelled' AND version<? ORDER BY version DESC LIMIT 51",id,before).all(),
+      this.checkout.active(id),this.checkout.audit(id)
+    ]);
+    const history=historyResult.results;
+    return {id:p.id,year:p.year,season:p.season,latest:publicVersion(latest),pendingId:p.pending_id,lock,audit,versions:history.slice(0,50).map(publicVersion),nextBefore:history.length>50?history[49].version:null};
   }
   async begin(id,user){return this.checkout.begin(id,await this.checkout.actor(this.role,user));}
   async upload(id,user,input,token){
@@ -115,7 +121,7 @@ export class EditorialFiles {
     return {...publicVersion(saved),notificationStatus};
   }
   async download(project,version,token){
-    const v=await this.stmt("SELECT * FROM editorial_versions WHERE project_id=? AND version=? AND state='complete'",project,version).first();if(!v)throw bad('버전을 찾을 수 없습니다.',404);
+    const v=await this.stmt("SELECT * FROM editorial_versions WHERE project_id=? AND version=? AND state='complete' AND state!='cancelled'",project,version).first();if(!v)throw bad('버전을 찾을 수 없습니다.',404);
     const r=await this.drive.download(v.drive_file_id,token);
     return new Response(r.body,{headers:{'Content-Type':'application/octet-stream','Content-Disposition':`attachment; filename="${v.normalized_filename}"`,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}});
   }
