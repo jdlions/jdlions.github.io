@@ -116,6 +116,7 @@
 - 390/820/1440px: 기존 native select dark option, 독립 editor-settings navigation, 시간대 greeting, login footer overflow 및 편집 파일 workflow 테스트 유지.
 - modal focus/trap/Escape/복귀, reduced-motion, 검색 debounce/race, pagination, lazy loading, 오류/empty, draft 탭 이동/뒤로가기 보존, 삭제 확인, publication/archive fallback 전체 기존 suite 통과.
 - 새 브라우저 테스트는 실제 admin/student 초기화 모듈을 사용한다. API fixture를 쓰는 로컬 인증 테스트이며 실제 production 계정으로 mutation을 시험한 것은 아니다.
+- CI의 기존 사진 실패 테스트는 picker 응답 전에 submit 이벤트를 직접 발생시켜 업로드 요청이 생기지 않는 race가 있었다(기존 테스트 반복 실행 5회 중 3회 실패). picker 응답을 의도적으로 보류하고 로딩 상태를 확인한 뒤 기사 선택·필수 입력·실제 버튼 클릭을 거치도록 수정했다. 제품 코드를 테스트에 맞춰 변경하거나 timeout을 늘리지 않았다.
 - **최종 Worker 197 + build 4 + Chrome 76 = 277개 통과**, Edge warm-cache 3개 추가 통과. build/validate/diff-check 통과.
 - production archive 18개는 validator/fallback 회귀로 유지 확인. live public homepage 정상 로드. Google Drive/Slack 운영 mutation은 하지 않았다.
 

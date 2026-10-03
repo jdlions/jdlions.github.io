@@ -1,13 +1,13 @@
 import {pageResponse} from './page-fixture.js';
 import {test,expect} from '@playwright/test';
-async function setup(page,role='admin'){
+async function setup(page,role='admin',{pickerReady}={}){
   const article={id:'a1',native:true,studentId:'student-'+ 'long-id-'.repeat(12),titleKo:'기사 제목',titleEn:'Article',articleType:'school',draftHtml:'<p>Student original</p>',status:role==='admin'?'submitted':'draft',submittedAt:'2026-09-06T00:00:00Z',updatedAt:'2026-09-06T00:00:00Z',revisions:[]};
   const calls=[];let failSave=false,failUpload=false,uploads=0,releaseUpload;
   await page.route('**/api/**',async route=>{
     const req=route.request(),path=new URL(req.url()).pathname;calls.push({path,method:req.method(),headers:req.headers(),body:req.postData()});
     let data={};
     if(path==='/api/session')data={authenticated:true,user:{role,name:'Tester',studentId:article.studentId}};
-    else if(path==='/api/native/articles')data=[article];
+    else if(path==='/api/native/articles'){if(new URL(req.url()).searchParams.get('picker')==='1'&&pickerReady)await pickerReady;data=[article];}
     else if(path==='/api/assignments')data={campaigns:[],assignments:[]};
     else if(path==='/api/photos')data=[];
     else if(path==='/api/classroom/students')data={students:[]};
@@ -49,9 +49,13 @@ for(const role of ['admin','student'])test(role+' browser back/forward restores 
   await page.goBack();await expect(page.locator('[data-view=articles] [data-open]')).toBeVisible();await page.goBack();await expect(page.locator('[data-view=dashboard]')).toBeVisible();await page.goForward();await page.goForward();await expect(page.locator('[data-editor]')).toBeVisible();await page.reload();await expect(page.locator('[data-editor]')).toBeVisible();
 });
 test('failed upload unlocks the form and preserves the selected file for retry',async({page})=>{
-  const state=await setup(page,'student');state.failUpload();await page.locator('[data-open-upload]').first().click();
+  let releasePicker;const pickerReady=new Promise(resolve=>releasePicker=resolve);
+  const state=await setup(page,'student',{pickerReady});state.failUpload();await page.locator('[data-open-upload]').first().click();
+  const articleSelect=page.locator('[name=articleSubmissionId]');await expect(articleSelect).toBeDisabled();
   await page.locator('[name=files]').setInputFiles({name:'photo.png',mimeType:'image/png',buffer:Buffer.from('image')});
-  await page.locator('[data-upload-form]').evaluate(form=>form.dispatchEvent(new Event('submit',{cancelable:true,bubbles:true})));
+  releasePicker();await expect(articleSelect).toBeEnabled();await articleSelect.selectOption('a1');
+  await page.locator('[name=caption]').fill('caption');await page.locator('[name=photographer]').fill('name');await page.locator('[name=copyright]').check();
+  await page.getByRole('button',{name:'제출하기',exact:true}).click();
   await expect.poll(state.uploads).toBe(1);state.release();await expect(page.locator('[name=files]')).toBeEnabled();
   await expect(page.locator('[data-upload-modal]')).toHaveClass(/is-open/);expect(await page.locator('[name=files]').evaluate(el=>el.files.length)).toBe(1);
   await expect(page.locator('dialog[open] [data-dialog-status]')).toContainText('일시적인 오류');
