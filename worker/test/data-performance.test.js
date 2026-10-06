@@ -35,6 +35,8 @@ for(const n of [0,1,10])test('assignment query count and identical response with
  for(let i=0;i<n;i++){
   const c=await f.repo.createCampaign({name:'Campaign '+i,year:2026,issueLabel:'Winter',issueId:null,instructions:'Text',startsAt:null,dueAt:null,audienceMode:'selected',recipientStudentIds:['a','b'],slots:[{articleType:'school',displayName:'School',required:true,quantity:1,dueAt:null,instructions:''},{articleType:'feature',displayName:'Feature',required:false,quantity:2,dueAt:null,instructions:''}]},'teacher');
   await f.repo.distributeCampaign(c,[{id:i%2?'other':'student',name:'Test'}]);
+  // Keep timestamp ordering deterministic across fast CI runners.
+  f.sql.prepare('UPDATE assignment_campaigns SET created_at=? WHERE id=?').run(new Date(Date.UTC(2026,0,1,0,0,i)).toISOString(),c.id);
  }
  for(const studentId of [undefined,'student','outsider']){
   f.queries.length=0;const before={campaigns:await legacyCampaigns(f.repo,studentId),assignments:await f.repo.listAssignments(studentId)},beforeCount=f.queries.length;
