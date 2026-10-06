@@ -40,7 +40,7 @@ test('cache policy grants freshness only to the public static asset namespace',a
     assert.equal(cacheFor(path)['Cache-Control'],'private, no-store');
     assert.equal(cacheFor(path)['Vercel-CDN-Cache-Control'],'no-store');
   }
-  for(const path of ['/assets/js/config.js','/assets/css/editorial.css','/assets/images/pridedesk-logo.webp'])assert.equal(cacheFor(path)['Cache-Control'],'public, max-age=3600, must-revalidate');
+  for(const path of ['/assets/js/config.js','/assets/css/editorial.css','/assets/images/pridedesk-logo-white.webp'])assert.equal(cacheFor(path)['Cache-Control'],'public, max-age=3600, must-revalidate');
 });
 
 test('HTML, imported modules and dynamic theme use one content-versioned asset graph', async () => {
@@ -57,4 +57,14 @@ test('HTML, imported modules and dynamic theme use one content-versioned asset g
   const shell=await readFile(resolve(output,prefix,'js/shared/shell.js'),'utf8');
   assert(shell.includes(`../${prefix}css/editorial-liquid-glass.css`));
   assert.doesNotMatch(shell,/\.\.\/assets\/css\//);
+});
+
+test('official branding and social assets resolve within the versioned build; originals stay out',async()=>{
+ const files=await readdir(output,{recursive:true});assert(!files.some(x=>x.includes('branding/source')));
+ for(const page of ['login','admin','student']){
+  const html=await readFile(resolve(output,page,'index.html'),'utf8');
+  assert.match(html,/pridedesk-logo-white\.webp/);assert.match(html,/pridedesk-icon-16\.png/);assert.match(html,/pridedesk-icon-32\.png/);assert.match(html,/pridedesk-icon-180\.png/);assert.match(html,/noindex, nofollow/);
+  for(const item of html.matchAll(/srcset="([^"]+)"/g))for(const candidate of item[1].split(','))await access(resolve(output,page,candidate.trim().split(/\s+/)[0]));
+ }
+ const login=await readFile(resolve(output,'login/index.html'),'utf8');const image=login.match(/property="og:image" content="([^"]+)"/)[1];const url=new URL(image);assert.equal(url.origin,'https://pridesk.vercel.app');assert.match(url.pathname,/assets\/build-[a-f0-9]+\/images\/pridedesk-social\.webp/);await access(resolve(output,'.'+url.pathname));assert(login.includes('name="twitter:image" content="'+image+'"'));
 });

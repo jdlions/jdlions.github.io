@@ -22,15 +22,15 @@ body:not(.login-page){background:radial-gradient(circle at 82% 5%,rgba(201,168,7
 .login-page::before{content:"";position:fixed;inset:0;background:linear-gradient(115deg,transparent 25%,rgba(255,255,255,.025) 48%,transparent 70%);pointer-events:none}
 .login-card{width:min(680px,100%);background:linear-gradient(145deg,rgba(28,29,43,.8),rgba(11,12,21,.72));box-shadow:0 35px 100px rgba(0,0,0,.46),inset 0 1px 0 rgba(255,255,255,.2)}
 .login-options button{background:linear-gradient(145deg,rgba(255,255,255,.1),rgba(255,255,255,.04));border-color:rgba(255,255,255,.16)}
-.login-kicker{color:var(--light);max-width:52ch}.ko-sub{display:block;color:var(--muted);font-size:.76rem;margin-top:3px}.brand-lockup{display:flex;align-items:center;gap:12px}.brand-lockup::before{content:"LP";display:grid;place-items:center;width:30px;height:30px;border:1px solid rgba(201,168,76,.45);border-radius:9px;color:var(--gold);font:500 .62rem DM Mono}
-@media(max-width:760px){.app-sidebar{top:72px}.app-main{margin:0;padding-top:96px}.login-card{padding:30px 22px}.brand-lockup::before{display:none}}
+.login-kicker{color:var(--light);max-width:52ch}.ko-sub{display:block;color:var(--muted);font-size:.76rem;margin-top:3px}.brand-lockup{display:flex;align-items:center;gap:12px}.brand-lockup::before{content:none;display:none}
+@media(max-width:760px){.app-sidebar{top:72px}.app-main{margin:0;padding-top:96px}.login-card{padding:30px 22px}.brand-lockup::before{content:none;display:none}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important}}
 .login-options--single{grid-template-columns:1fr}
 
 /* PrideDesk brand shell */
 body.app-page{display:flex;min-height:100vh;flex-direction:column}
 .brand-lockup{display:grid;grid-template-columns:30px auto;grid-template-rows:auto auto;column-gap:12px;align-items:center}
-.brand-lockup::before{grid-row:1/3}
+.brand-lockup::before{content:none;display:none}
 .brand-name{font-size:1rem;line-height:1;font-weight:700;letter-spacing:-.02em}.brand-name span{color:var(--gold)}
 .brand-lockup small{color:var(--muted);font:400 .52rem DM Mono,monospace;letter-spacing:.045em;line-height:1.2}
 .editorial-footer{margin-left:248px;padding:24px clamp(22px,4vw,56px) 30px;border-top:1px solid rgba(255,255,255,.07);color:var(--muted);text-align:right}
@@ -145,3 +145,9 @@ dialog.modal .modal-card{max-height:calc(100dvh - 32px);overflow-y:auto;overscro
 .admin-overview-page .page-head>button{flex-shrink:0;white-space:nowrap}
 @media(max-width:1050px){.assignment-toolbar{grid-template-columns:repeat(2,minmax(0,1fr))}.assignment-toolbar>input{grid-column:1/-1}}
 @media(max-width:700px){.assignment-toolbar{grid-template-columns:minmax(0,1fr)}}
+
+/* Official artwork retains its own colors and proportions. */
+.brand-lockup{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0;flex-shrink:1}
+.brand-lockup .official-brand{display:block;line-height:0}
+.official-brand img{display:block;width:180px;max-width:100%;height:auto;object-fit:contain;filter:none}
+@media(max-width:760px){.brand-lockup .official-brand img{width:32px;height:38px;object-fit:contain}.brand-lockup small{display:none}}

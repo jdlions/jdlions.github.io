@@ -15,7 +15,7 @@ for (const file of [...editorialFiles, ...['login','admin','student'].map(page=>
 }
 const assetPrefix = `assets/build-${digest.digest('hex').slice(0,16)}/`;
 const assetPath = file => file.replace(/^assets\//, assetPrefix);
-const versionReferences = source => source.replaceAll('../assets/', `../${assetPrefix}`);
+const versionReferences = source => source.replaceAll('https://pridesk.vercel.app/assets/', `https://pridesk.vercel.app/${assetPrefix}`).replaceAll('../assets/', `../${assetPrefix}`);
 await rm(output, { recursive: true, force: true });
 for (const file of editorialFiles) {
   const target = resolve(output, assetPath(file));
