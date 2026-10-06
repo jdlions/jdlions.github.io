@@ -36,10 +36,11 @@ test('native UI includes autosave, submit lock, editor copy, feedback and revisi
 test('every user-visible admin dropdown uses the accessible shared custom select',async()=>{
   const [admin,ui,css]=await Promise.all([readFile(new URL('../../assets/js/admin/admin-app.js',import.meta.url),'utf8'),readFile(new URL('../../assets/js/shared/ui.js',import.meta.url),'utf8'),readFile(new URL('../../assets/css/editorial.css',import.meta.url),'utf8')]);
   assert.doesNotMatch(admin,/<select\b/i);
+  const photo=await readFile(new URL('../../assets/js/admin/student-overview.js',import.meta.url),'utf8');
   const list=await readFile(new URL('../../assets/js/shared/article-list.js',import.meta.url),'utf8');assert.doesNotMatch(list,/<select\b/i);assert.match(list,/customSelect\('status-filter'/);assert.match(list,/customSelect\('type-filter'/);assert.match(list,/customSelect\('campaign-filter'/);
   assert.match(admin,/customSelect\('assignment-type'/);assert.match(admin,/customSelect\('assignment-status'/);
-  assert.match(admin,/customSelect\('issue-id'/);assert.match(admin,/customSelect\('slot-type'/);assert.match(admin,/customSelect\('review-status'/);assert.match(admin,/customSelect\('photo-status'/);
-  assert.match(admin,/initSlotSelects\(\)/);assert.match(admin,/querySelectorAll\('\[data-photo-select\]'\)/);
+  assert.match(admin,/customSelect\('issue-id'/);assert.match(admin,/customSelect\('slot-type'/);assert.match(admin,/customSelect\('review-status'/);assert.match(photo,/customSelect\('photo-status'/);
+  assert.match(admin,/initSlotSelects\(\)/);assert.match(photo,/querySelectorAll\('\[data-photo-select\]'\)/);
   assert.match(ui,/type="hidden"/);assert.match(ui,/inputName/);assert.match(ui,/dispatchEvent\(new Event\('input'/);assert.match(ui,/dispatchEvent\(new Event\('change'/);
   assert.match(ui,/aria-haspopup="listbox"/);assert.match(ui,/aria-expanded/);assert.match(ui,/aria-selected/);assert.match(ui,/ArrowDown/);assert.match(ui,/ArrowUp/);assert.match(ui,/Home/);assert.match(ui,/End/);assert.match(ui,/Enter/);assert.match(ui,/Escape/);assert.match(ui,/Tab/);assert.match(ui,/pointerdown/);
   assert.match(css,/\.custom-select__trigger/);assert.match(css,/button\[aria-selected=true\] b/);

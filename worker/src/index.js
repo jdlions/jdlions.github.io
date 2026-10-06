@@ -1,3 +1,5 @@
+import {dashboardSummary,photoStudentSummary,studentPhotos} from './admin-overview.js';
+import {isNewAssignmentEligible} from '../../assets/js/shared/student-identity.js';
 import { clearCookie, cookie, randomToken, requireTrustedOrigin, sanitizeHtml, seal, setCookie, STATE_COOKIE, SESSION_COOKIE, unseal } from './security.js';
 import {articleListOptions,listArticlePage} from './article-list.js';
 import {routeEditorialFiles} from './editorial-files.js';
@@ -194,6 +196,9 @@ async function routeApi(request, env, pathname) {
   if (pathname === '/api/session' && request.method === 'GET') return ok({ authenticated: true, user: { id: viewer.sub, name: viewer.name, email: viewer.email, role: viewer.role, studentId: viewer.studentId } }, env);
   if (pathname === '/api/classroom/students' && request.method === 'GET') { requireAdmin(viewer); return ok({students:await configuredRoster(env.NEWSPAPER_CLASSROOM_ID,viewer.accessToken)},env); }
   const repo = repository(env);
+  if(pathname==='/api/admin/dashboard'&&request.method==='GET'){requireAdmin(viewer);return ok(await dashboardSummary(env.DB),env);}
+  if(pathname==='/api/admin/photo-students'&&request.method==='GET'){requireAdmin(viewer);return ok(await photoStudentSummary(env.DB),env);}
+  if(pathname==='/api/admin/student-photos'&&request.method==='GET'){requireAdmin(viewer);return ok((await studentPhotos(env.DB,new URL(request.url).searchParams.get('student'))).map(photoForClient),env);}
   if (pathname === '/api/publications') {
     requireAdmin(viewer);
     const publications = new IssuePublications(env.DB);
@@ -214,14 +219,14 @@ async function routeApi(request, env, pathname) {
     const [campaigns,assignments]=await Promise.all([repo.listCampaigns(studentId),repo.listAssignments(studentId)]);
     return ok({campaigns,assignments},env);
   }
-  if(pathname==='/api/assignments'&&request.method==='POST'){requireAdmin(viewer);return ok(await repo.createCampaign(validateCampaign(await request.json()),viewer.sub),env,201);}
+  if(pathname==='/api/assignments'&&request.method==='POST'){requireAdmin(viewer);const input=validateCampaign(await request.json());if(input.recipientStudentIds.length){const roster=await configuredRoster(env.NEWSPAPER_CLASSROOM_ID,viewer.accessToken),allowed=new Set(roster.filter(isNewAssignmentEligible).map(s=>s.id));if(input.recipientStudentIds.some(id=>!allowed.has(id)))throw Object.assign(new Error('신규 과제는 1·2학년 대상 학생만 선택해 주세요.'),{status:400,code:'invalid_assignment_recipients'});}return ok(await repo.createCampaign(input,viewer.sub),env,201);}
   const assignmentUpdate=pathname.match(/^\/api\/assignments\/([^/]+)$/);
   if(assignmentUpdate&&request.method==='PATCH'){requireAdmin(viewer);const current=await repo.getCampaign(assignmentUpdate[1]);if(!current)throw Object.assign(new Error('Assignment not found.'),{status:404,code:'assignment_not_found'});const input=await request.json(),validated=validateCampaign({...current,...input,slots:current.slots});if(!['draft','active','closed'].includes(input.status||current.status))throw Object.assign(new Error('Invalid assignment status.'),{status:400,code:'invalid_assignment'});return ok(await repo.updateCampaign(current.id,{...validated,status:input.status||current.status}),env);}
   const deletionSummary=pathname.match(/^\/api\/assignments\/([^/]+)\/deletion-summary$/);
   if(deletionSummary&&request.method==='GET'){requireAdmin(viewer);return ok(await repo.assignmentDeletionSummary(decodeURIComponent(deletionSummary[1])),env);}
   if(assignmentUpdate&&request.method==='DELETE'){requireAdmin(viewer);validateAssignmentDeletion(await request.json());return ok(await repo.deleteCampaign(decodeURIComponent(assignmentUpdate[1])),env);}
   const distribute=pathname.match(/^\/api\/assignments\/([^/]+)\/distribute$/);
-  if(distribute&&request.method==='POST'){requireAdmin(viewer);const campaign=await repo.getCampaign(distribute[1]);if(!campaign)throw Object.assign(new Error('Assignment not found.'),{status:404,code:'assignment_not_found'});if(campaign.status==='closed')throw Object.assign(new Error('Closed assignments cannot be distributed.'),{status:409,code:'assignment_closed'});const input=await request.json(),roster=await configuredRoster(env.NEWSPAPER_CLASSROOM_ID,viewer.accessToken),selected=new Set((input.studentIds?.length?input.studentIds:campaign.recipientStudentIds||[]).map(String)),students=(input.audienceMode||campaign.audienceMode)==='all'?roster:roster.filter(student=>selected.has(student.id));if(!students.length)throw Object.assign(new Error('Select at least one student.'),{status:400,code:'assignment_recipients_required'});return ok(await repo.distributeCampaign(campaign,students),env);}
+  if(distribute&&request.method==='POST'){requireAdmin(viewer);const campaign=await repo.getCampaign(distribute[1]);if(!campaign)throw Object.assign(new Error('Assignment not found.'),{status:404,code:'assignment_not_found'});if(campaign.status==='closed')throw Object.assign(new Error('Closed assignments cannot be distributed.'),{status:409,code:'assignment_closed'});const input=await request.json(),roster=await configuredRoster(env.NEWSPAPER_CLASSROOM_ID,viewer.accessToken),selected=new Set((input.studentIds?.length?input.studentIds:campaign.recipientStudentIds||[]).map(String)),students=roster.filter(isNewAssignmentEligible).filter(student=>(input.audienceMode||campaign.audienceMode)==='all'||selected.has(student.id));if(!students.length)throw Object.assign(new Error('Select at least one student.'),{status:400,code:'assignment_recipients_required'});return ok(await repo.distributeCampaign(campaign,students),env);}
   const assignmentInstanceId=assignmentArticleInstanceId(pathname);
   if(assignmentInstanceId&&request.method==='POST'){requireStudent(viewer);const instance=await repo.getAssignmentInstance(assignmentInstanceId);if(!instance||instance.student_id!==viewer.studentId)throw Object.assign(new Error('Assignment slot not found.'),{status:404,code:'assignment_not_found'});if(instance.article_id)return ok(nativeForViewer(await repo.getNativeArticle(instance.article_id),viewer),env);ensureAssignmentWritable(instance);return ok(nativeForViewer(await repo.createArticleForAssignment(instance,viewer.studentId),viewer),env,201);}
   if(pathname==='/api/native/articles'&&request.method==='GET'){

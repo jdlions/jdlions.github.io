@@ -11,8 +11,8 @@ async function setup(page,role='admin',hold={}){
  await page.goto('/'+role+'/');return calls;
 }
 test('admin first render needs only session and summary; photos/assignments/roster load on demand once',async({page})=>{
- const calls=await setup(page);await expect(page.locator('[data-open]')).toBeVisible();expect(calls).toEqual(['/api/session','/api/native/articles']);
- await page.locator('[data-admin-view=photos]').click();await expect(page.locator('[data-view=photos] h1')).toHaveText('사진 관리');expect(calls.filter(x=>x==='/api/photos')).toHaveLength(1);
+ const calls=await setup(page);await expect(page.locator('[data-view=dashboard] h1')).toHaveText('대시보드');expect(calls).toEqual(['/api/session','/api/admin/dashboard']);
+ await page.locator('[data-admin-view=photos]').click();await expect(page.locator('[data-view=photos] h1')).toHaveText('사진 관리');expect(calls.filter(x=>x==='/api/admin/photo-students')).toHaveLength(1);
  await page.locator('[data-admin-view=articles]').click();await expect(page.locator('[data-open]')).toBeVisible();expect(calls.filter(x=>x==='/api/native/articles')).toHaveLength(1);
  await page.locator('[data-admin-view=assignments]').click();await page.locator('[data-new-assignment]').click();await expect(page.locator('[name=studentId]')).toHaveCount(1);expect(calls.filter(x=>x==='/api/classroom/students')).toHaveLength(1);
 });
@@ -23,14 +23,14 @@ test('student article renders while assignment is pending; late response never r
 });
 test('failed article API does not block publications and retries only its own dataset',async({page})=>{
  let fail=true;const calls=await setup(page,'admin',{'/api/native/articles':r=>r.fulfill(fail?{status:503,json:{error:{message:'Article unavailable'}}}:{json:pageResponse([])})});
- await expect(page.locator('[data-retry-startup]')).toBeVisible();await page.locator('[data-admin-view=publications]').click();await expect(page.locator('[data-publication-form]')).toBeVisible();
+ await page.locator('[data-admin-view=articles]').click();await expect(page.locator('[data-retry-startup]')).toBeVisible();await page.locator('[data-admin-view=publications]').click();await expect(page.locator('[data-publication-form]')).toBeVisible();
  fail=false;await page.locator('[data-admin-view=articles]').click();await expect(page.locator('.queue-tools')).toBeVisible();expect(calls.filter(x=>x==='/api/native/articles')).toHaveLength(2);expect(calls).not.toContain('/api/assignments');
 });
 test('photo API timeout shows retry and navigation remains usable',async({page})=>{
- await page.clock.install();let stalled=true;const calls=await setup(page,'admin',{'/api/photos':r=>stalled?new Promise(()=>{}):r.fulfill({json:[]})});
- await expect(page.locator('[data-open]')).toBeVisible();await page.locator('[data-admin-view=photos]').click();await expect.poll(()=>calls.includes('/api/photos')).toBe(true);
+ await page.clock.install();let stalled=true;const calls=await setup(page,'admin',{'/api/admin/photo-students':r=>stalled?new Promise(()=>{}):r.fulfill({json:[]})});
+ await expect(page.locator('[data-view=dashboard] h1')).toHaveText('대시보드');await page.locator('[data-admin-view=photos]').click();await expect.poll(()=>calls.includes('/api/admin/photo-students')).toBe(true);
  await page.clock.fastForward(61000);await expect(page.locator('[data-view=photos]')).toContainText('요청 시간이 초과');
- stalled=false;await page.locator('[data-retry-startup]').click();await expect(page.locator('[data-view=photos] h1')).toHaveText('사진 관리');
+ stalled=false;await page.locator('[data-overview-retry]').click();await expect(page.locator('[data-view=photos] h1')).toHaveText('사진 관리');
  await page.locator('[data-admin-view=articles]').click();await expect(page.locator('[data-open]')).toBeVisible();
 });
 test('session timeout offers retry and permits fresh sign-in',async({page})=>{
