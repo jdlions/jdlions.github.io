@@ -6,6 +6,7 @@ async function setup(page,{articles=2,failSummary=false,failDelete=false}={}){
   const request=route.request(),path=new URL(request.url()).pathname;
   let data={};
   if(path==='/api/session')data={authenticated:true,user:{role:'admin',name:'Teacher'}};
+  else if(path==='/api/admin/dashboard')data={assignment:{campaign:null,progress:[]},editorial:null,errors:{}};
   else if(path==='/api/native/articles'||path==='/api/photos')data=[];
   else if(path==='/api/classroom/students')data={students:[]};
   else if(path==='/api/assignments')data={campaigns:[{id:'c1',name:'삭제 테스트',slots:[],status:'active'}],assignments:[]};

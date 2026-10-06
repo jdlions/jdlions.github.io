@@ -8,7 +8,7 @@ test('student-controlled article type cannot inject markup into the real admin q
   await page.route('**/api/**',route=>route.fulfill({json:new URL(route.request().url()).pathname==='/api/session'
     ?{authenticated:true,user:{role:'admin',name:'Fixture'}}
     :pageResponse([{...draft,id:'a1',studentId:'s1',status:'draft',updatedAt:'2026-01-01T00:00:00.000Z'}])}));
-  await page.goto('/admin/');await expect(page.locator('[data-queue]')).toBeVisible();
+  await page.goto('/admin/#view=articles');await expect(page.locator('[data-queue]')).toBeVisible();
   await expect(page.locator('[data-queue] img')).toHaveCount(0);
   await expect(page.locator('[data-open]')).toHaveAttribute('data-type',articleType);
   expect(await page.locator('body').getAttribute('data-audit-xss')).toBeNull();
@@ -25,7 +25,7 @@ for(const view of ['files','editor-settings'])test('pending '+view+' read never 
   await page.goto('/admin/#view='+view);await expect.poll(()=>Boolean(pending)).toBe(true);
   await page.locator('[data-admin-view=dashboard]').click();
   await expect(page.locator('[data-view=dashboard]')).toBeVisible();
-  await expect(page.locator('[data-page-range]')).toHaveText('0개');
+  await expect(page.locator('[data-view=dashboard] h1')).toHaveText('대시보드');
   await pending.fulfill({status:502,json:{error:{message:'Late error'}}});
   await expect(page.locator('[data-view=dashboard]')).toBeVisible();
   await expect(page.getByText('Late error')).toHaveCount(0);
@@ -41,14 +41,14 @@ for(const role of ['admin','student'])test(role+' initialization loads only requ
       path==='/api/editorial-files/editors'?{operatorRole:'',editors:[]}:[];
     await route.fulfill({json:data});
   });
-  await page.goto('/'+role+'/');await expect(page.locator('[data-page-range]')).toHaveText('0개');
+  await page.goto('/'+role+'/');if(role==='admin')await expect(page.locator('[data-view=dashboard] h1')).toHaveText('대시보드');else await expect(page.locator('[data-page-range]')).toHaveText('0개');
   if(role==='student')await expect(page.getByText('배부된 과제가 없습니다')).toBeVisible();
-  expect(calls.sort()).toEqual((role==='admin'?['/api/session','/api/native/articles']:['/api/session','/api/native/articles','/api/assignments']).sort());
+  expect(calls.sort()).toEqual((role==='admin'?['/api/session','/api/admin/dashboard']:['/api/session','/api/native/articles','/api/assignments']).sort());
   if(role==='admin'){
     await page.locator('[data-admin-view=files]').click();await expect(page.locator('[data-file-retry]')).toBeVisible();
     await expect(page.locator('[data-view=files] .loading-state')).toHaveCount(0);
     fail=false;await page.locator('[data-file-retry]').click();await expect(page.locator('[data-file-operator]')).toBeVisible();
-    await page.locator('[data-admin-view=dashboard]').click();await expect(page.locator('[data-page-range]')).toHaveText('0개');
+    await page.locator('[data-admin-view=dashboard]').click();await expect(page.locator('[data-view=dashboard] h1')).toHaveText('대시보드');
     expect(calls).not.toContain('/api/classroom/students');expect(calls).not.toContain('/api/photos');
   }
 });

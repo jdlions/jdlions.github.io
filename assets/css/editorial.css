@@ -115,3 +115,33 @@ dialog.modal .modal-card{max-height:calc(100dvh - 32px);overflow-y:auto;overscro
 [data-view="files"] form{display:grid;gap:12px}
 [data-view="files"] input,[data-view="files"] select,[data-view="files"] textarea{max-width:100%;min-width:0}
 [data-view="files"] progress{width:100%;accent-color:var(--gold,#d6b75b)}
+
+/* Student progress shares the existing dark surface and explicit text status. */
+.student-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr));gap:16px}
+.student-card{min-width:0;padding:20px;overflow-wrap:anywhere;text-align:left}
+.student-card h2,.student-card h3,.student-card h4{margin:0 0 12px}.student-card section+section{margin-top:18px}
+.student-card .queue-row{display:flex;flex-wrap:wrap;gap:8px;min-width:0;width:100%;padding:12px;text-align:left}
+.student-card .queue-row>span{min-width:0;overflow-wrap:anywhere}.student-card .queue-row small{display:block}
+.student-card .queue-row>span:nth-child(3),.student-card .queue-row>span:nth-child(4){font-size:.75rem}
+.student-slot{display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%;text-align:left;margin-block:6px;min-width:0}
+.student-slot:disabled{opacity:1;cursor:default}.student-slot span{overflow-wrap:anywhere}
+.student-progress .student-grid{margin-block:16px}.student-card[hidden],.student-slot[hidden],.photo-student[hidden]{display:none}
+.status.status-tone--neutral{background:#30343b;color:#e0e2e6}.status.status-tone--pending{background:#17334d;color:#b9ddff}
+.status.status-tone--action{background:#4a3116;color:#ffdc9d}.status.status-tone--complete{background:#163b2b;color:#b8f0cc}.status.status-tone--error{background:#4c2026;color:#ffd0d5}
+.dashboard-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:18px}.dashboard-grid>.panel{padding:24px;min-width:0;overflow-wrap:anywhere}
+.summary-progress{display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:18px}.summary-progress progress{grid-column:1/-1;width:100%;accent-color:var(--gold)}.dashboard-version{font-size:2rem}
+.sidebar-credit{font-size:.68rem;line-height:1.6;color:var(--muted,#aaa);overflow-wrap:anywhere;margin-top:16px}.sidebar-credit p{margin-block:10px}.sidebar-credit a{color:inherit}
+.admin-overview-page .app-sidebar{overflow-y:auto}.admin-overview-page .side-bottom{margin-top:auto;flex-shrink:0;padding-top:16px}
+@media(min-width:700px) and (max-width:1000px){.student-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.student-card{padding:14px}}
+
+.student-progress{display:block;background:transparent;padding:16px}.student-progress .student-slot{display:flex;border:1px solid var(--line);border-radius:10px}.campaign-slots{flex-wrap:wrap}.student-card .muted{color:var(--muted)}
+
+.campaign-row{min-width:0;overflow-wrap:anywhere}.campaign-row>header>div{min-width:0}.campaign-row>header{flex-wrap:wrap}.campaign-row>footer{gap:12px;flex-wrap:wrap}.campaign-row>footer div{flex-wrap:wrap}.campaign-slots span{white-space:normal}.student-slot>.status{flex-shrink:0}
+
+.admin-overview-page .app-sidebar{display:flex;flex-direction:column;overflow-y:auto}.admin-overview-page .side-nav,.admin-overview-page .side-title{flex-shrink:0}.admin-overview-page .side-bottom{position:static;inset:auto;margin-top:auto;width:100%}
+
+.assignment-toolbar{grid-template-columns:minmax(0,220px) minmax(0,220px) minmax(0,1fr)}
+.assignment-toolbar>*{min-width:0;max-width:100%}
+.admin-overview-page .page-head>button{flex-shrink:0;white-space:nowrap}
+@media(max-width:1050px){.assignment-toolbar{grid-template-columns:repeat(2,minmax(0,1fr))}.assignment-toolbar>input{grid-column:1/-1}}
+@media(max-width:700px){.assignment-toolbar{grid-template-columns:minmax(0,1fr)}}

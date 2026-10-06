@@ -1,12 +1,13 @@
 import {pageResponse} from './page-fixture.js';
 import {test,expect} from '@playwright/test';
-async function setup(page,role='admin',{pickerReady}={}){
+async function setup(page,role='admin',{pickerReady,queue=true}={}){
   const article={id:'a1',native:true,studentId:'student-'+ 'long-id-'.repeat(12),titleKo:'기사 제목',titleEn:'Article',articleType:'school',draftHtml:'<p>Student original</p>',status:role==='admin'?'submitted':'draft',submittedAt:'2026-09-06T00:00:00Z',updatedAt:'2026-09-06T00:00:00Z',revisions:[]};
   const calls=[];let failSave=false,failUpload=false,uploads=0,releaseUpload;
   await page.route('**/api/**',async route=>{
     const req=route.request(),path=new URL(req.url()).pathname;calls.push({path,method:req.method(),headers:req.headers(),body:req.postData()});
     let data={};
     if(path==='/api/session')data={authenticated:true,user:{role,name:'Tester',studentId:article.studentId}};
+    else if(path==='/api/admin/dashboard')data={assignment:{campaign:null,progress:[]},editorial:null,errors:{}};
     else if(path==='/api/native/articles'){if(new URL(req.url()).searchParams.get('picker')==='1'&&pickerReady)await pickerReady;data=[article];}
     else if(path==='/api/assignments')data={campaigns:[],assignments:[]};
     else if(path==='/api/photos')data=[];
@@ -18,7 +19,7 @@ async function setup(page,role='admin',{pickerReady}={}){
     else throw new Error('Unexpected API '+path);
     await route.fulfill({json:path==='/api/native/articles'&&Array.isArray(data)?pageResponse(data):data});
   });
-  await page.goto('/'+role+'/');await expect(page.locator('[data-new], [data-status-filter]').first()).toBeAttached();
+  await page.goto('/'+role+'/');if(role==='admin'&&queue)await page.locator('[data-admin-view=articles]').click();await expect(page.locator(role==='admin'&&!queue?'[data-dashboard-refresh]':'[data-new], [data-status-filter]').first()).toBeAttached();
   return {article,calls,fail:()=>failSave=true,recover:()=>failSave=false,failUpload:()=>failUpload=true,uploads:()=>uploads,release:()=>releaseUpload()};
 }
 test('admin detail binds after a dashboard visit; saves and applies status with CSRF',async({page})=>{
@@ -45,7 +46,7 @@ test('student repeated submits issue one upload and recover controls',async({pag
   await expect(page.locator('[data-upload-form]')).toHaveAttribute('aria-busy','true');await expect(page.locator('[name=files]')).toBeDisabled();expect(state.uploads()).toBe(1);state.release();await expect(page.locator('[name=files]')).toBeEnabled();await expect(page.locator('[data-upload-modal]')).not.toHaveClass(/is-open/);
 });
 for(const role of ['admin','student'])test(role+' browser back/forward restores view and article',async({page})=>{
-  await setup(page,role);await page.locator(`[data-${role}-view=articles]`).click();await page.locator('[data-view=articles] [data-open]').click();await expect(page.locator('[data-editor]')).toBeVisible();
+  await setup(page,role,{queue:false});await page.locator(`[data-${role}-view=articles]`).click();await page.locator('[data-view=articles] [data-open]').click();await expect(page.locator('[data-editor]')).toBeVisible();
   await page.goBack();await expect(page.locator('[data-view=articles] [data-open]')).toBeVisible();await page.goBack();await expect(page.locator('[data-view=dashboard]')).toBeVisible();await page.goForward();await page.goForward();await expect(page.locator('[data-editor]')).toBeVisible();await page.reload();await expect(page.locator('[data-editor]')).toBeVisible();
 });
 test('failed upload unlocks the form and preserves the selected file for retry',async({page})=>{

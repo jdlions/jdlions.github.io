@@ -10,7 +10,7 @@ async function setup(page,role='admin'){
   const data=p==='/api/session'?{authenticated:true,user:{role,studentId:'s',name:'Tester'}}:p==='/api/assignments'?{campaigns:[],assignments:[]}:p==='/api/classroom/students'?{students:[]}:[];
   await route.fulfill({json:data});
  });
- await page.goto('/'+role+'/');await expect(page.locator('[data-list-message] .loading-spinner')).toBeVisible();
+ await page.goto('/'+role+'/'+(role==='admin'?'#view=articles':''));await expect(page.locator('[data-list-message] .loading-spinner')).toBeVisible();
  return {pending,holds,async reply(data=pageResponse([article]),status=200,index=0){await expect.poll(()=>pending.length).toBeGreaterThan(index);await pending.splice(index,1)[0].route.fulfill({status,json:data}).catch(()=>{});}};
 }
 for(const width of [390,820,1440])test('filter surfaces, date and keyboard focus match at '+width,async({page},info)=>{
@@ -40,7 +40,7 @@ test('assignment/photo/roster loading stays local and student filters share the 
  await page.locator('[data-admin-view=assignments]').click();await expect(page.locator('[data-view=assignments] .loading-spinner')).toBeVisible();await s.reply({campaigns:[],assignments:[]});await expect(page.locator('.loading-spinner')).toHaveCount(0);
  const input=page.locator('[data-assignment-student]');await expect(input).toHaveAttribute('aria-label','학생 이름 또는 ID');expect(await input.evaluate(e=>getComputedStyle(e).backgroundImage)).toBe(await page.locator('.assignment-toolbar .custom-select__trigger').first().evaluate(e=>getComputedStyle(e).backgroundImage));
  s.holds.add('/api/classroom/students');await page.locator('[data-new-assignment]').click();await expect(page.locator('.loading-state')).toContainText('학생 명단');await s.reply({students:[]});await expect(page.locator('.loading-spinner')).toHaveCount(0);
- s.holds.add('/api/photos');await page.locator('[data-admin-view=photos]').click();await expect(page.locator('[data-view=photos] .loading-spinner')).toBeVisible();await page.locator('[data-admin-view=articles]').click();await expect(page.locator('[data-open]')).toBeVisible();await s.reply([]);await expect(page.locator('[data-open]')).toBeVisible();await expect(page.locator('.loading-spinner')).toHaveCount(0);
+ s.holds.add('/api/admin/photo-students');await page.locator('[data-admin-view=photos]').click();await expect(page.locator('[data-view=photos] .loading-spinner')).toBeVisible();await page.locator('[data-admin-view=articles]').click();await expect(page.locator('[data-open]')).toBeVisible();await s.reply([]);await expect(page.locator('[data-open]')).toBeVisible();await expect(page.locator('.loading-spinner')).toHaveCount(0);
 });
 test('student article and assignment loading are independent',async({page})=>{
  const s=await setup(page,'student');await s.reply();await expect(page.locator('[data-open]')).toBeVisible();await expect(page.locator('.loading-spinner')).toHaveCount(0);await page.locator('[data-query]').fill('empty');await expect(page.locator('.loading-spinner')).toBeVisible();await s.reply(pageResponse([]));await expect(page.locator('.loading-spinner')).toHaveCount(0);
