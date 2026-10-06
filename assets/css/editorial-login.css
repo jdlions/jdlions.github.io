@@ -29,7 +29,7 @@
   width: 42px;
   height: 42px;
   object-fit: contain;
-  filter: drop-shadow(0 5px 10px rgba(0, 0, 0, .32));
+  filter: none;
 }
 
 .login-header__brand span,
@@ -155,3 +155,9 @@
   .login-page .login-card,
   .login-feature-strip { border-color: CanvasText; }
 }
+
+.login-header__brand img.login-header__wordmark{width:145px;height:auto;filter:none}
+.login-hero h1{font-size:inherit;line-height:1;text-shadow:none}
+.login-official-logo{display:block;width:min(100%,480px);height:auto;filter:none}
+.login-mark img{filter:none}
+@media(max-width:600px){.login-header__brand img.login-header__wordmark{width:120px}}
