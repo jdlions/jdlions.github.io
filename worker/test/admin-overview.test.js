@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {readFileSync,readdirSync} from 'node:fs';
 import {articleListOptions,listArticlePage} from '../src/article-list.js';
-import {dashboardSummary,photoStudentSummary,studentPhotos} from '../src/admin-overview.js';
+import {articleStudentOverview,dashboardSummary,photoStudentSummary,studentPhotos} from '../src/admin-overview.js';
 import {D1EditorialRepository} from '../src/repository.js';
 import worker,{validateCampaign} from '../src/index.js';
 import {seal,SESSION_COOKIE} from '../src/security.js';
@@ -36,7 +36,7 @@ async function auth(t,f,role='admin'){
  const env={DB:f.db,SESSION_SECRET:'fixture',NEWSPAPER_CLASSROOM_ID:crypto.randomUUID()};const token=await seal({sub:role,accessToken:'fixture',courseId:env.NEWSPAPER_CLASSROOM_ID,exp:Date.now()+60000},env.SESSION_SECRET);
  return (path,method='GET',body)=>worker.fetch(new Request('https://local.test'+path,{method,headers:{Cookie:SESSION_COOKIE+'='+token,Origin:'https://local.test','X-Editorial-CSRF':'1','Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})}),env);
 }
-test('all new aggregate/detail endpoints reject student role and retain no-store',async t=>{const f=fixture(),send=await auth(t,f,'student');for(const path of ['/api/admin/dashboard','/api/admin/photo-students','/api/admin/student-photos?student=other']){const r=await send(path);assert.equal(r.status,403);assert.match(r.headers.get('cache-control'),/no-store/);}f.sql.close();});
+test('all new aggregate/detail endpoints reject student role and retain no-store',async t=>{const f=fixture(),send=await auth(t,f,'student');for(const path of ['/api/admin/article-overview','/api/admin/dashboard','/api/admin/photo-students','/api/admin/student-photos?student=other']){const r=await send(path);assert.equal(r.status,403);assert.match(r.headers.get('cache-control'),/no-store/);}f.sql.close();});
 test('new recipient validation and all-mode distribution exclude grade 3 without deleting history',async t=>{
  const f=fixture(),old=await campaign(f,[{id:'g3',name:'31001 Alumni'}]),send=await auth(t,f);
  const bad=await send('/api/assignments','POST',{...input(),recipientStudentIds:['g3'],audienceMode:'selected'});assert.equal(bad.status,400);
@@ -46,4 +46,19 @@ test('new recipient validation and all-mode distribution exclude grade 3 without
 test('overview query count is constant for 100 students and reports payload before/after',async()=>{
  const f=fixture(),students=Array.from({length:100},(_,i)=>({id:'s'+i,name:String(11000+i)+' Fixture'})),c=await campaign(f,students);for(let i=0;i<20;i++)await photo(f,await article(f,c,'s'+i,'school'));
  const bytes=x=>Buffer.byteLength(JSON.stringify(x)),before=await f.repo.listPhotos();f.calls.length=0;const articlePage=await listArticlePage(f.db,articleListOptions(new URLSearchParams(),null),null),articleQueries=f.calls.length;f.calls.length=0;const assignments={campaigns:await f.repo.listCampaigns(),assignments:await f.repo.listAssignments()},assignmentQueries=f.calls.length;f.calls.length=0;const summary=await photoStudentSummary(f.db),photoQueries=f.calls.length;f.calls.length=0;const dashboard=await dashboardSummary(f.db),dashboardQueries=f.calls.length;assert.equal(photoQueries,1);assert.equal(dashboardQueries,3);assert.equal(summary.length,200);console.log('admin overview measurement',JSON.stringify({students:100,photos:20,articleQueries,articlePayload:bytes(articlePage),assignmentQueries,assignmentPayload:bytes(assignments),photoBeforeBytes:bytes(before),photoAfterBytes:bytes(summary),photoQueries,dashboardBytes:bytes(dashboard),dashboardQueries}));f.sql.close();
+});
+
+for(const n of [0,20,100])test('complete article overview has constant query count and no body/private fields: '+n,async()=>{
+ const f=fixture(),students=Array.from({length:n},(_,i)=>({id:'s'+i,name:(i<10?11000+i:21000+i)+' Student'})),c=await campaign(f,students);
+ for(const s of students.slice(0,-1))for(const type of ['school','feature'])await article(f,c,s.id,type);
+ f.calls.length=0;let cursor='',beforeBytes=0,pages=0;
+ do{const p=await listArticlePage(f.db,articleListOptions(new URLSearchParams({cursor,stats:pages?'0':'1'})),null);beforeBytes+=Buffer.byteLength(JSON.stringify(p));pages++;cursor=p.nextCursor;}while(cursor);
+ const beforeQueries=f.calls.length;f.calls.length=0;const d=await articleStudentOverview(f.db,[...students,{id:'opaque-11001',name:'Unknown'}]);
+ assert.equal(f.calls.length,1);assert.equal(d.students.length,n+1);assert.equal(d.items.length,Math.max(0,n-1)*2);
+ assert.doesNotMatch(JSON.stringify(d),/PRIVATE|draftHtml|draftPreview|editorDraftHtml|internalNote|revisions|wordCount/);
+ console.log('complete article overview',JSON.stringify({students:n,beforeRequests:pages,afterRequests:1,beforeQueries,afterQueries:1,beforeBytes,afterBytes:Buffer.byteLength(JSON.stringify(d))}));f.sql.close();
+});
+
+test('admin overview includes cached roster-only students and preserves historical recipients',async t=>{
+ const f=fixture();await campaign(f,[{id:'legacy',name:'31001 Alumni'}]);const send=await auth(t,f);const r=await send('/api/admin/article-overview');assert.equal(r.status,200);assert.match(r.headers.get('cache-control'),/no-store/);const d=await r.json();assert(d.students.some(s=>s.studentId==='g1'));assert(!d.students.some(s=>s.studentId==='g3'));assert(d.students.some(s=>s.studentId==='legacy'));assert.deepEqual(d.items,[]);f.sql.close();
 });

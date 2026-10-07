@@ -1,5 +1,23 @@
 // Read-only projections: no article bodies, Drive IDs, roster calls or per-student queries.
 const rows=async(db,query,args=[]) => (await db.prepare(query).bind(...args).all()).results;
+export async function articleStudentOverview(db,roster=[]){
+  const scope=await rows(db,`WITH scope AS (
+    SELECT i.student_id,r.student_name,i.article_id,i.campaign_id,s.article_type
+    FROM assignment_slot_instances i JOIN assignment_slots s ON s.id=i.slot_id
+    JOIN assignment_recipients r ON r.campaign_id=i.campaign_id AND r.student_id=i.student_id
+    UNION ALL SELECT a.student_id,a.student_id,a.id,NULL,a.article_type FROM articles a
+    WHERE NOT EXISTS(SELECT 1 FROM assignment_slot_instances i WHERE i.article_id=a.id)
+  ) SELECT x.student_id studentId,x.student_name studentName,x.campaign_id campaignId,c.name assignmentName,
+    x.article_type articleType,a.id,a.title_ko titleKo,a.title_en titleEn,a.status,a.updated_at updatedAt,a.submitted_at submittedAt
+    FROM scope x LEFT JOIN articles a ON a.id=x.article_id LEFT JOIN assignment_campaigns c ON c.id=x.campaign_id`);
+  const students=new Map(roster.map(s=>[s.id,{studentId:s.id,name:s.name||s.id}])),items=[],campaigns=new Map(),seen=new Set();
+  for(const row of scope){
+    if(!students.has(row.studentId))students.set(row.studentId,{studentId:row.studentId,name:row.studentName||row.studentId});
+    if(row.campaignId)campaigns.set(row.campaignId,{id:row.campaignId,name:row.assignmentName});
+    if(row.id&&!seen.has(row.id)){seen.add(row.id);const {studentName,...item}=row;items.push({...item,authorName:students.get(row.studentId).name});}
+  }
+  return {students:[...students.values()],items,campaigns:[...campaigns.values()]};
+}
 export async function dashboardSummary(db){
   const campaignQuery=async()=>{
     const campaign=await db.prepare("SELECT id,name,year,issue_label issueLabel FROM assignment_campaigns WHERE status='active' AND (starts_at IS NULL OR starts_at<=?) ORDER BY COALESCE(starts_at,created_at) DESC,created_at DESC,id DESC LIMIT 1").bind(new Date().toISOString()).first();

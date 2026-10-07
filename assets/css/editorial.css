@@ -136,6 +136,27 @@ dialog.modal .modal-card{max-height:calc(100dvh - 32px);overflow-y:auto;overscro
 
 .student-progress{display:block;background:transparent;padding:16px}.student-progress .student-slot{display:flex;border:1px solid var(--line);border-radius:10px}.campaign-slots{flex-wrap:wrap}.student-card .muted{color:var(--muted)}
 
+/* Article review overview: titles and state, never body previews. */
+.compact-student-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.compact-student-card{padding:14px;align-self:start}
+.compact-student-card h2{font-size:.95rem;margin-bottom:10px}
+.compact-student-card .compact-slot{display:grid;grid-template-columns:65px minmax(0,1fr);align-items:start;gap:8px;margin-top:6px}
+.compact-slot h3{font-size:.75rem;color:var(--muted);margin:10px 0 0}
+.compact-article-row{display:flex;gap:4px;align-items:center;min-width:0}
+.compact-student-card .queue-row{display:grid;grid-template-columns:auto minmax(0,1fr) 12px;gap:6px;padding:8px;min-height:42px;flex:1}
+.compact-article-row strong{font-size:.8rem;line-height:1.45;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.compact-article-row .status{font-size:.65rem;white-space:nowrap}
+.compact-delete{font-size:.65rem;padding:6px;color:var(--muted);background:transparent;flex-shrink:0}
+.compact-delete:hover{color:#f2aaa0;border-color:#b76559}
+.compact-article-row.is-filtered{opacity:.55}
+.compact-slot>div{min-width:0}
+[data-article-list] .queue-tools{grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;padding:10px}
+[data-article-list] .queue-tools>[data-query]{grid-column:span 2}
+[data-article-list] .queue-stats button{padding:10px}
+[data-article-list] .queue-stats strong{font-size:1.2rem}
+@media(max-width:1100px){[data-article-list] .queue-tools{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:760px){.compact-student-grid{grid-template-columns:minmax(0,1fr)}[data-article-list] .queue-tools{grid-template-columns:repeat(2,minmax(0,1fr))}.compact-student-card .compact-slot{grid-template-columns:60px minmax(0,1fr)}.compact-student-card .queue-row{grid-template-columns:auto minmax(0,1fr)}.compact-student-card .queue-row>b{display:none}}
+
 .campaign-row{min-width:0;overflow-wrap:anywhere}.campaign-row>header>div{min-width:0}.campaign-row>header{flex-wrap:wrap}.campaign-row>footer{gap:12px;flex-wrap:wrap}.campaign-row>footer div{flex-wrap:wrap}.campaign-slots span{white-space:normal}.student-slot>.status{flex-shrink:0}
 
 .admin-overview-page .app-sidebar{display:flex;flex-direction:column;overflow-y:auto}.admin-overview-page .side-nav,.admin-overview-page .side-title{flex-shrink:0}.admin-overview-page .side-bottom{position:static;inset:auto;margin-top:auto;width:100%}

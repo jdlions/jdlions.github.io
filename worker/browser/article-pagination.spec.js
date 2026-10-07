@@ -3,7 +3,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {readFileSync,readdirSync} from 'node:fs';
 import {articleListOptions,listArticlePage} from '../src/article-list.js';
 
-async function setup(page,role='admin'){
+async function setup(page,role='student'){
  const sql=new DatabaseSync(':memory:');
  for(const f of readdirSync(new URL('../migrations/',import.meta.url)).filter(x=>x.endsWith('.sql')).sort())sql.exec(readFileSync(new URL('../migrations/'+f,import.meta.url),'utf8'));
  for(let i=0;i<65;i++)sql.prepare('INSERT INTO articles(id,student_id,article_type,title_ko,status,draft_html,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)').run('a'+String(i).padStart(3,'0'),'s','school','Title '+i,i%2?'hold':'draft','<p>Full body</p>','2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z');
@@ -23,13 +23,13 @@ async function setup(page,role='admin'){
  await page.goto('/'+role+'/#view=articles');await expect(page.locator('[data-open]')).toHaveCount(20);
  return {calls,sql,delay:q=>delayed=q,release:()=>release?.()};
 }
-test('admin pages retain filters and cursor through detail, stats are not repeated',async({page})=>{
+test('student pages retain filters and cursor through detail, stats are not repeated',async({page})=>{
  const s=await setup(page);await expect(page.locator('[data-page-range]')).toHaveText('1–20 / 65');
  await page.locator('[data-page-next]').click();await expect(page.locator('[data-page-range]')).toHaveText('21–40 / 65');
  const first=await page.locator('[data-open]').first().getAttribute('data-open');
  await page.locator('[data-open]').first().click();await expect(page.locator('[data-editor]')).toHaveText('Full body');
  await page.locator('[data-back]').click();await expect(page.locator('[data-page-range]')).toHaveText('21–40 / 65');expect(await page.locator('[data-open]').first().getAttribute('data-open')).toBe(first);
- await page.locator('[data-student-filter]').fill('missing');await expect(page.locator('[data-page-range]')).toHaveText('0개');
+ await page.locator('[data-query]').fill('missing');await expect(page.locator('[data-page-range]')).toHaveText('0개');
  expect(s.calls.find(x=>x.searchParams.get('cursor')).searchParams.get('stats')).toBe('0');s.sql.close();
 });
 test('search debounce, stale response exclusion and filter reset',async({page})=>{

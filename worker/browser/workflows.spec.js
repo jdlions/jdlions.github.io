@@ -1,4 +1,4 @@
-import {pageResponse} from './page-fixture.js';
+import {overviewResponse,pageResponse} from './page-fixture.js';
 import {test,expect} from '@playwright/test';
 async function setup(page,role='admin',{pickerReady,queue=true}={}){
   const article={id:'a1',native:true,studentId:'student-'+ 'long-id-'.repeat(12),titleKo:'기사 제목',titleEn:'Article',articleType:'school',draftHtml:'<p>Student original</p>',status:role==='admin'?'submitted':'draft',submittedAt:'2026-09-06T00:00:00Z',updatedAt:'2026-09-06T00:00:00Z',revisions:[]};
@@ -8,7 +8,7 @@ async function setup(page,role='admin',{pickerReady,queue=true}={}){
     let data={};
     if(path==='/api/session')data={authenticated:true,user:{role,name:'Tester',studentId:article.studentId}};
     else if(path==='/api/admin/dashboard')data={assignment:{campaign:null,progress:[]},editorial:null,errors:{}};
-    else if(path==='/api/native/articles'){if(new URL(req.url()).searchParams.get('picker')==='1'&&pickerReady)await pickerReady;data=[article];}
+    else if(path==='/api/native/articles'||path==='/api/admin/article-overview'){if(new URL(req.url()).searchParams.get('picker')==='1'&&pickerReady)await pickerReady;data=[article];}
     else if(path==='/api/assignments')data={campaigns:[],assignments:[]};
     else if(path==='/api/photos')data=[];
     else if(path==='/api/classroom/students')data={students:[]};
@@ -17,7 +17,7 @@ async function setup(page,role='admin',{pickerReady,queue=true}={}){
     else if(path.endsWith('/status')){article.status=req.postDataJSON().status;data=article;}
     else if(path==='/api/native/articles/a1'){if(req.method()==='PATCH'){if(failSave)return route.fulfill({status:500,json:{error:{message:'Save failed'}}});const input=req.postDataJSON();Object.assign(article,input,{draftHtml:input.contentHtml});}data=article;}
     else throw new Error('Unexpected API '+path);
-    await route.fulfill({json:path==='/api/native/articles'&&Array.isArray(data)?pageResponse(data):data});
+    await route.fulfill({json:path==='/api/admin/article-overview'?overviewResponse(data):path==='/api/native/articles'&&Array.isArray(data)?pageResponse(data):data});
   });
   await page.goto('/'+role+'/');if(role==='admin'&&queue)await page.locator('[data-admin-view=articles]').click();await expect(page.locator(role==='admin'&&!queue?'[data-dashboard-refresh]':'[data-new], [data-status-filter]').first()).toBeAttached();
   return {article,calls,fail:()=>failSave=true,recover:()=>failSave=false,failUpload:()=>failUpload=true,uploads:()=>uploads,release:()=>releaseUpload()};
@@ -36,7 +36,7 @@ test('dropdown overlay does not move toolbar and long IDs do not overlap dates',
     await page.locator('[data-status-filter]').locator('..').locator('button').first().click();
     const menu=page.locator('[role=listbox]:visible');await expect(menu).toBeVisible();expect(await bar.boundingBox()).toEqual(before);expect(await menu.evaluate(e=>getComputedStyle(e).position)).toBe('fixed');
     const m=await menu.boundingBox();expect(m.y).toBeGreaterThanOrEqual(0);expect(m.y+m.height).toBeLessThanOrEqual(801);await page.keyboard.press('Escape');
-    const id=await page.locator('.queue-row>span:nth-child(3)').boundingBox(),date=await page.locator('.queue-row>span:nth-child(4)').boundingBox();expect(id.x+id.width<=date.x||id.y+id.height<=date.y).toBeTruthy();
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   }
 });
 test('student repeated submits issue one upload and recover controls',async({page})=>{

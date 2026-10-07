@@ -1,11 +1,11 @@
-import {pageResponse} from './page-fixture.js';
+import {overviewResponse,pageResponse} from './page-fixture.js';
 import {test,expect} from '@playwright/test';
 async function setup(page,role='admin',hold={}){
  const calls=[];const article={id:'a',studentId:'s',articleType:'school',titleKo:'Summary title',status:'draft',draftPreview:'Preview without full body',wordCount:42,updatedAt:'2026-09-01T00:00:00Z'};
  await page.route('**/api/**',async route=>{
   const path=new URL(route.request().url()).pathname;calls.push(path);
   if(hold[path])return hold[path](route);
-  const data=path==='/api/session'?{authenticated:true,user:{role,studentId:'s',name:'Test'}}:path==='/api/native/articles'?[article]:path==='/api/native/articles/a'?{...article,draftHtml:'<p>Full detail</p>',studentFeedback:'Feedback',revisions:[]}:path==='/api/assignments'?{campaigns:[],assignments:[]}:path==='/api/classroom/students'?{students:[{id:'s',name:'Student'}]}:path==='/api/publications'?{issues:[],nextNumber:35}:[];
+  const data=path==='/api/session'?{authenticated:true,user:{role,studentId:'s',name:'Test'}}:path==='/api/admin/article-overview'?overviewResponse([article]):path==='/api/native/articles'?[article]:path==='/api/native/articles/a'?{...article,draftHtml:'<p>Full detail</p>',studentFeedback:'Feedback',revisions:[]}:path==='/api/assignments'?{campaigns:[],assignments:[]}:path==='/api/classroom/students'?{students:[{id:'s',name:'Student'}]}:path==='/api/publications'?{issues:[],nextNumber:35}:[];
   await route.fulfill({json:path==='/api/native/articles'&&Array.isArray(data)?pageResponse(data):data});
  });
  await page.goto('/'+role+'/');return calls;
@@ -13,7 +13,7 @@ async function setup(page,role='admin',hold={}){
 test('admin first render needs only session and summary; photos/assignments/roster load on demand once',async({page})=>{
  const calls=await setup(page);await expect(page.locator('[data-view=dashboard] h1')).toHaveText('대시보드');expect(calls).toEqual(['/api/session','/api/admin/dashboard']);
  await page.locator('[data-admin-view=photos]').click();await expect(page.locator('[data-view=photos] h1')).toHaveText('사진 관리');expect(calls.filter(x=>x==='/api/admin/photo-students')).toHaveLength(1);
- await page.locator('[data-admin-view=articles]').click();await expect(page.locator('[data-open]')).toBeVisible();expect(calls.filter(x=>x==='/api/native/articles')).toHaveLength(1);
+ await page.locator('[data-admin-view=articles]').click();await expect(page.locator('[data-open]')).toBeVisible();expect(calls.filter(x=>x==='/api/admin/article-overview')).toHaveLength(1);
  await page.locator('[data-admin-view=assignments]').click();await page.locator('[data-new-assignment]').click();await expect(page.locator('[name=studentId]')).toHaveCount(1);expect(calls.filter(x=>x==='/api/classroom/students')).toHaveLength(1);
 });
 test('student article renders while assignment is pending; late response never replaces editor',async({page})=>{
@@ -22,9 +22,9 @@ test('student article renders while assignment is pending; late response never r
  await page.locator('[data-open]').click();await expect(page.locator('[data-editor]')).toHaveText('Full detail');await release();await expect(page.locator('[data-editor]')).toHaveText('Full detail');
 });
 test('failed article API does not block publications and retries only its own dataset',async({page})=>{
- let fail=true;const calls=await setup(page,'admin',{'/api/native/articles':r=>r.fulfill(fail?{status:503,json:{error:{message:'Article unavailable'}}}:{json:pageResponse([])})});
+ let fail=true;const calls=await setup(page,'admin',{'/api/admin/article-overview':r=>r.fulfill(fail?{status:503,json:{error:{message:'Article unavailable'}}}:{json:overviewResponse([])})});
  await page.locator('[data-admin-view=articles]').click();await expect(page.locator('[data-retry-startup]')).toBeVisible();await page.locator('[data-admin-view=publications]').click();await expect(page.locator('[data-publication-form]')).toBeVisible();
- fail=false;await page.locator('[data-admin-view=articles]').click();await expect(page.locator('.queue-tools')).toBeVisible();expect(calls.filter(x=>x==='/api/native/articles')).toHaveLength(2);expect(calls).not.toContain('/api/assignments');
+ fail=false;await page.locator('[data-admin-view=articles]').click();await expect(page.locator('.queue-tools')).toBeVisible();expect(calls.filter(x=>x==='/api/admin/article-overview')).toHaveLength(2);expect(calls).not.toContain('/api/assignments');
 });
 test('photo API timeout shows retry and navigation remains usable',async({page})=>{
  await page.clock.install();let stalled=true;const calls=await setup(page,'admin',{'/api/admin/photo-students':r=>stalled?new Promise(()=>{}):r.fulfill({json:[]})});

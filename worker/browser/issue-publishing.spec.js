@@ -11,6 +11,7 @@ async function admin(page, { failFirst = false, listFailure = false } = {}) {
   await page.route('**/api/**', async route => {
     const req = route.request(), path = new URL(req.url()).pathname; let data;
     if (path === '/api/session') data = { authenticated: true, user: { role: 'admin', name: 'Teacher' } };
+    else if (path === '/api/admin/article-overview') data = {students:[],items:[],campaigns:[]};
     else if (path === '/api/native/articles' || path === '/api/photos') data = [];
     else if (path === '/api/assignments') data = { campaigns: [], assignments: [] };
     else if (path === '/api/classroom/students') data = { students: [] };

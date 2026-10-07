@@ -160,4 +160,6 @@
 .login-hero h1{font-size:inherit;line-height:1;text-shadow:none}
 .login-official-logo{display:block;width:min(100%,480px);height:auto;filter:none}
 .login-mark img{filter:none}
+.login-page .login-card .login-mark{display:grid;place-items:center;padding:0}
+.login-page .login-card .login-mark img{width:48px;height:48px;object-fit:contain}
 @media(max-width:600px){.login-header__brand img.login-header__wordmark{width:120px}}
