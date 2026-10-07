@@ -41,6 +41,7 @@ export const editorialFiles = [
   'assets/js/shared/article-list.js',
   'assets/js/shared/article-overview.js',
   'assets/js/shared/article-preview.js',
+  'assets/js/shared/editor-text.js',
   'assets/js/shared/ui.js',
   'assets/js/shared/navigation.js',
   'assets/js/shared/issue-publication.js'
