@@ -1,6 +1,9 @@
 // Explicit allowlist shared by both deployment builds. No public news, mock
 // data, Worker source, credentials or D1 files may enter the frontend output.
 export const editorialFiles = [
+  'assets/images/pridedesk-logo-dark-gold.webp',
+  'assets/images/pridedesk-logo-dark-gold-2x.webp',
+  'assets/images/pridedesk-symbol-dark-gold.webp',
   'assets/images/pridedesk-icon-16.png',
   'assets/images/pridedesk-icon-180.png',
   'assets/images/pridedesk-icon-32.png',
@@ -36,6 +39,7 @@ export const editorialFiles = [
   'assets/js/shared/request-timeout.js',
   'assets/js/shared/view-loader.js',
   'assets/js/shared/article-list.js',
+  'assets/js/shared/article-overview.js',
   'assets/js/shared/article-preview.js',
   'assets/js/shared/ui.js',
   'assets/js/shared/navigation.js',

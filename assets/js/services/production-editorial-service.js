@@ -1,3 +1,4 @@
+import {filterArticleOverview} from '../shared/article-overview.js';
 import {draftSummary} from '../shared/article-preview.js';
 import { api } from './api-client.js';
 
@@ -36,6 +37,17 @@ export class ProductionEditorialService {
     // This cache holds visited records only; it is never used as a complete list.
     for(const row of page.items){const old=this.state.articles.find(x=>x.id===row.id);if(!old)this.state.articles.push(this.normalizeArticle({...row,native:true}));else if(!old.detailLoaded)Object.assign(old,this.normalizeArticle({...row,native:true}));}
     return {...page,items:page.items.map(x=>this.normalizeArticle({...x,native:true}))};
+  }
+  invalidateArticleOverview(){this.overviewData=undefined;}
+  async articleOverview(filters={},signal){
+    if(!this.overviewData||this.overviewRevision!==this.listRevision){
+      const data=await this.request('/api/admin/article-overview',{signal});
+      if(!Array.isArray(data?.students)||!Array.isArray(data?.items))throw new Error('학생 기사 현황을 불러오지 못했습니다.');
+      if(signal?.aborted)throw new DOMException('Aborted','AbortError');
+      this.overviewData=data;this.overviewRevision=this.listRevision;
+      for(const row of data.items){const old=this.state.articles.find(x=>x.id===row.id);if(!old)this.state.articles.push(this.normalizeArticle({...row,native:true}));else if(!old.detailLoaded)Object.assign(old,this.normalizeArticle({...row,native:true}));}
+    }
+    return filterArticleOverview(this.overviewData,filters);
   }
   ensureResource(name){
     if(!this.session)return Promise.resolve();

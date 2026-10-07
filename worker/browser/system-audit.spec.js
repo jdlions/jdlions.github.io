@@ -1,5 +1,5 @@
 import {test,expect} from '@playwright/test';
-import {pageResponse} from './page-fixture.js';
+import {overviewResponse,pageResponse} from './page-fixture.js';
 import {validateNativeDraft} from '../src/index.js';
 
 test('student-controlled article type cannot inject markup into the real admin queue',async({page})=>{
@@ -7,10 +7,10 @@ test('student-controlled article type cannot inject markup into the real admin q
   const draft=validateNativeDraft({articleType,titleKo:'Fixture',contentHtml:'<p>Text</p>'});
   await page.route('**/api/**',route=>route.fulfill({json:new URL(route.request().url()).pathname==='/api/session'
     ?{authenticated:true,user:{role:'admin',name:'Fixture'}}
-    :pageResponse([{...draft,id:'a1',studentId:'s1',status:'draft',updatedAt:'2026-01-01T00:00:00.000Z'}])}));
+    :overviewResponse([{...draft,id:'a1',studentId:'s1',status:'draft',updatedAt:'2026-01-01T00:00:00.000Z'}])}));
   await page.goto('/admin/#view=articles');await expect(page.locator('[data-queue]')).toBeVisible();
   await expect(page.locator('[data-queue] img')).toHaveCount(0);
-  await expect(page.locator('[data-open]')).toHaveAttribute('data-type',articleType);
+  await expect(page.locator('.compact-slot h3').last()).toHaveText(articleType);
   expect(await page.locator('body').getAttribute('data-audit-xss')).toBeNull();
 });
 

@@ -1,4 +1,4 @@
-import {dashboardSummary,photoStudentSummary,studentPhotos} from './admin-overview.js';
+import {articleStudentOverview,dashboardSummary,photoStudentSummary,studentPhotos} from './admin-overview.js';
 import {isNewAssignmentEligible} from '../../assets/js/shared/student-identity.js';
 import { clearCookie, cookie, randomToken, requireTrustedOrigin, sanitizeHtml, seal, setCookie, STATE_COOKIE, SESSION_COOKIE, unseal } from './security.js';
 import {articleListOptions,listArticlePage} from './article-list.js';
@@ -197,6 +197,7 @@ async function routeApi(request, env, pathname) {
   if (pathname === '/api/classroom/students' && request.method === 'GET') { requireAdmin(viewer); return ok({students:await configuredRoster(env.NEWSPAPER_CLASSROOM_ID,viewer.accessToken)},env); }
   const repo = repository(env);
   if(pathname==='/api/admin/dashboard'&&request.method==='GET'){requireAdmin(viewer);return ok(await dashboardSummary(env.DB),env);}
+  if(pathname==='/api/admin/article-overview'&&request.method==='GET'){requireAdmin(viewer);const roster=await configuredRoster(env.NEWSPAPER_CLASSROOM_ID,viewer.accessToken);return ok(await articleStudentOverview(env.DB,roster.filter(isNewAssignmentEligible)),env);}
   if(pathname==='/api/admin/photo-students'&&request.method==='GET'){requireAdmin(viewer);return ok(await photoStudentSummary(env.DB),env);}
   if(pathname==='/api/admin/student-photos'&&request.method==='GET'){requireAdmin(viewer);return ok((await studentPhotos(env.DB,new URL(request.url).searchParams.get('student'))).map(photoForClient),env);}
   if (pathname === '/api/publications') {

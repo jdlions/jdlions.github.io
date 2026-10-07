@@ -1,11 +1,11 @@
-import {pageResponse} from './page-fixture.js';
+import {overviewResponse,pageResponse} from './page-fixture.js';
 import {test,expect} from '@playwright/test';
 async function setup(page,{status='draft',fail=false}={}){
  const calls=[];let release,deleted=false;
  await page.route('**/api/**',async route=>{
   const req=route.request(),path=new URL(req.url()).pathname;let data={};
   if(path==='/api/session')data={authenticated:true,user:{role:'admin',name:'Teacher'}};
-  else if(path==='/api/native/articles')data=[{id:'a',studentId:'student',titleKo:'고아 기사',status,draftHtml:'초안'},{id:'b',studentId:'other',titleKo:'보존 기사',status:'submitted',draftHtml:'보존'}];
+  else if(path==='/api/native/articles'||path==='/api/admin/article-overview')data=[{id:'a',studentId:'student',titleKo:'고아 기사',status,draftHtml:'초안'},{id:'b',studentId:'other',titleKo:'보존 기사',status:'submitted',draftHtml:'보존'}];
   else if(path==='/api/photos')data=[];
   else if(path==='/api/classroom/students')data={students:[]};
   else if(path==='/api/assignments')data={campaigns:[],assignments:[]};
@@ -14,7 +14,7 @@ async function setup(page,{status='draft',fail=false}={}){
    if(fail)return route.fulfill({status:500,json:{error:{message:'삭제 실패'}}});
    await new Promise(resolve=>release=resolve);deleted=true;data={id:'a',deleted:true};
   }else throw new Error('Unexpected request '+req.method()+' '+path);
-  await route.fulfill({json:path==='/api/native/articles'&&Array.isArray(data)?pageResponse(deleted?data.filter(x=>x.id!=='a'):data):data});
+  await route.fulfill({json:path==='/api/admin/article-overview'?overviewResponse(deleted?data.filter(x=>x.id!=='a'):data):path==='/api/native/articles'&&Array.isArray(data)?pageResponse(deleted?data.filter(x=>x.id!=='a'):data):data});
  });
  await page.goto('/admin/#view=articles');
  await page.locator('[data-delete-article=a]').click();
@@ -54,7 +54,7 @@ test('feature article keeps delete button after open, editor save, status change
  await page.route('**/api/**',async route=>{
   const req=route.request(),path=new URL(req.url()).pathname;calls.push({path,method:req.method(),body:req.postData()});let data;
   if(path==='/api/session')data={authenticated:true,user:{role:'admin',name:'Teacher'}};
-  else if(path==='/api/native/articles')data=deleted?[other]:[feature,other];
+  else if(path==='/api/native/articles'||path==='/api/admin/article-overview')data=deleted?[other]:[feature,other];
   else if(path==='/api/photos')data=[];
   else if(path==='/api/assignments')data={campaigns:[],assignments:[]};
   else if(path==='/api/classroom/students')data={students:[]};
@@ -62,7 +62,7 @@ test('feature article keeps delete button after open, editor save, status change
   else if(path==='/api/native/articles/feature-1/status'){feature.status=req.postDataJSON().status;data=feature;}
   else if(path==='/api/native/articles/feature-1'){if(req.method()==='DELETE')deleted=true;data=deleted?{id:feature.id,deleted:true}:feature;}
   else throw new Error('Unexpected API '+path);
-  await route.fulfill({json:path==='/api/native/articles'&&Array.isArray(data)?pageResponse(data):data});
+  await route.fulfill({json:path==='/api/admin/article-overview'?overviewResponse(deleted?data.filter(x=>x.id!=='a'):data):path==='/api/native/articles'&&Array.isArray(data)?pageResponse(data):data});
  });
  await page.goto('/admin/#view=articles');
  await expect(page.locator('[data-delete-article=feature-1]')).toBeVisible();

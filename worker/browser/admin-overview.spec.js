@@ -1,5 +1,5 @@
 import {test,expect} from '@playwright/test';
-import {pageResponse} from './page-fixture.js';
+import {overviewResponse,pageResponse} from './page-fixture.js';
 async function setup(page,{n=1,empty=false,partial=false}={}){
  const calls=[];const students=Array.from({length:n},(_,i)=>({id:'s'+i,name:(11001+i)+' 학생 이름 '+(i===0?'아주 긴 이름 '.repeat(4):'')}));
  const slots=[{id:'school',articleType:'school',displayName:'학교기사'},{id:'feature',articleType:'feature',displayName:'피처기사'}];
@@ -11,6 +11,7 @@ async function setup(page,{n=1,empty=false,partial=false}={}){
   let data;if(p==='/api/session')data={authenticated:true,user:{role:'admin',name:'Teacher'}};
   else if(p==='/api/admin/dashboard')data={assignment:empty?{campaign:null,progress:[]}:partial?null:{campaign,progress:slots.map(s=>({articleType:s.id,total:n,submitted:s.id==='school'?n:0,withPhotos:s.id==='school'?1:0}))},editorial:empty?null:{year:2026,season:'Winter',version:14,editorName:'Last Editor'},errors:partial?{assignment:'과제 요약 실패'}:{}};
   else if(p==='/api/assignments')data={campaigns:empty?[]:[campaign],assignments};
+  else if(p==='/api/admin/article-overview')data=overviewResponse(articles,students.map(s=>({studentId:s.id,name:s.name})));
   else if(p==='/api/native/articles')data=pageResponse(articles);
   else if(p.startsWith('/api/native/articles/'))data={id:p.split('/')[4],studentId:'s0',titleKo:'Review',articleType:'school',draftHtml:'Body',status:'reviewing',internalNote:'Teacher note',revisions:[]};
   else if(p==='/api/admin/photo-students')data=empty?[]:students.flatMap(s=>slots.map(slot=>({studentId:s.id,studentName:s.name,articleType:slot.id,photoCount:slot.id==='school'?1:0,unreviewed:slot.id==='school'?1:0})));
