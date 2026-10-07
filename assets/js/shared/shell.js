@@ -13,7 +13,9 @@ export function userGreeting(name, now = new Date()) {
   const displayName = typeof name === 'string' ? name.trim() : '';
   return displayName ? `${greeting}, ${displayName}님.` : `${greeting}.`;
 }
+const sidebarCredit='<p>© 2026 The Lion\'s Pride<br>of Joongdong High School</p><p>Website &amp; PrideDesk by<br><strong>35기 Hyunseung Yu</strong></p><a href="mailto:dylanyu@outlook.kr">Developer Contact<br>dylanyu@outlook.kr</a>';
 export function initShell(session, area) {
+  document.querySelectorAll('[data-sidebar-credit]').forEach(el=>el.innerHTML=sidebarCredit);
   loadLiquidGlassTheme();
   document.querySelectorAll('[data-user-name]').forEach(el=>el.textContent=session?.name || 'Public visitor');
   const greeting = document.querySelector('[data-user-greeting]');
