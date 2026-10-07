@@ -132,9 +132,14 @@ test('public and internal surfaces use the PrideDesk brand and shared credit', a
   assert.match(home,/class="nav-workspace" href="https:\/\/pridesk\.vercel\.app"/);
   for(const html of [login,admin,student]){
     assert.match(html,/PrideDesk/);
-    assert.match(html,/Website &amp; PrideDesk by/);
-    assert.match(html,/35기 Hyunseung Yu/);
   }
+  assert.match(login,/Website &amp; PrideDesk by/);
+  assert.match(login,/35기 Hyunseung Yu/);
+  for(const html of [admin,student])assert.match(html,/class="sidebar-credit" data-sidebar-credit/);
+  const shell=await readFile(new URL('../../assets/js/shared/shell.js',import.meta.url),'utf8');
+  assert.match(shell,/Website &amp; PrideDesk by/);
+  assert.match(shell,/<strong>35기 Hyunseung Yu<\/strong>/);
+  assert.match(shell,/mailto:dylanyu@outlook.kr/);
 });
 
 test('admin and student apps render loading and retry states without top-level service await', async () => {

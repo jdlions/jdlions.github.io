@@ -2,6 +2,30 @@ import {test,expect} from '@playwright/test';
 import {sanitizeHtml} from '../src/security.js';
 import {pageResponse,overviewResponse} from './page-fixture.js';
 
+for(const type of ['school','feature'])test('admin counter initial/live/paste/save/reload '+type,async({page})=>{
+ const state=await setup(page,{role:'admin',type,status:'reviewing',html:'<p>원문</p>'});await expectCount(page,2);
+ await page.clock.install();const before=state.calls.length;await page.locator('[data-editor]').fill('A  한글');await expectCount(page,5);expect(state.calls.length).toBe(before);
+ await page.locator('[data-editor]').press('ControlOrMeta+A');await paste(page,'첨삭\nEnglish');await expectCount(page,10);
+ await page.clock.fastForward(1100);await expect(page.locator('[data-save-state]')).toContainText('저장됨');await page.locator('[data-checkpoint]').click();await page.reload();await expectCount(page,10);expect(state.article.draftHtml).toBe('<p>원문</p>');
+});
+test('admin counter changes with another article',async({page})=>{
+ const state=await setup(page,{role:'admin',status:'reviewing'});await expectCount(page,5);
+ const other={...state.article,id:'other',articleType:'feature',titleKo:'다른 기사',editorDraftHtml:'<p>편집  본문</p><p>123</p>'};
+ await page.route('**/api/admin/article-overview',r=>r.fulfill({json:overviewResponse([state.article,other])}));await page.route('**/api/native/articles/other',r=>r.fulfill({json:other}));
+ await page.locator('[data-back]').click();await page.locator('[data-open="other"]').click();await expectCount(page,10);await expect(page.locator('[data-count]')).toHaveCount(1);
+});
+for(const role of ['student','admin'])for(const width of [390,820,1440])test(role+' sidebar credit and counter layout '+width,async({page},info)=>{
+ await page.setViewportSize({width,height:500});await setup(page,{role,status:role==='admin'?'reviewing':'draft'});
+ if(await page.locator('[data-menu]').isVisible())await page.locator('[data-menu]').click();
+ const credit=page.locator('.app-sidebar .sidebar-credit');await expect(credit).toContainText("© 2026 The Lion's Pride");await expect(credit.locator('strong')).toHaveText('35기 Hyunseung Yu');
+ await expect(credit.locator('a')).toHaveAttribute('href','mailto:dylanyu@outlook.kr');await expect(credit.locator('a')).toContainText('Developer Contact');await expect(credit.locator('a')).toContainText('dylanyu@outlook.kr');
+ await credit.locator('a').scrollIntoViewIfNeeded();const side=await page.locator('.app-sidebar').boundingBox(),foot=await credit.boundingBox(),nav=await page.locator('.side-nav').boundingBox(),logout=await page.locator('[data-logout]').boundingBox();
+ expect(foot.y).toBeGreaterThanOrEqual(nav.y+nav.height);expect(foot.y).toBeGreaterThanOrEqual(logout.y+logout.height);expect(foot.y+foot.height).toBeLessThanOrEqual(side.y+side.height);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ await page.screenshot({path:info.outputPath('sidebar-'+role+'-'+width+'.png')});
+ if(width===390)await page.locator('[data-menu]').click();
+ const editor=await page.locator('[data-editor]').boundingBox(),counter=await page.locator('[data-count]').boundingBox();expect(counter.y).toBeGreaterThanOrEqual(editor.y+editor.height);
+});
+
 async function setup(page,{role='student',type='school',html='<p>기존 원고</p>',status='draft'}={}){
   const article={id:'text-test',studentId:'student-test',authorName:'테스트 학생',native:true,articleType:type,titleKo:'테스트 기사',titleEn:'',draftHtml:html,editorDraftHtml:'',status,updatedAt:'2026-10-07T00:00:00Z',revisions:[]};
   const calls=[];
