@@ -172,3 +172,6 @@ dialog.modal .modal-card{max-height:calc(100dvh - 32px);overflow-y:auto;overscro
 .brand-lockup .official-brand{display:block;line-height:0}
 .official-brand img{display:block;width:180px;max-width:100%;height:auto;object-fit:contain;filter:none}
 @media(max-width:760px){.brand-lockup .official-brand img{width:32px;height:38px;object-fit:contain}.brand-lockup small{display:none}}
+
+.native-editor,.article-content{white-space:pre-wrap;overflow-wrap:anywhere}
+.editor-footer{gap:12px;flex-wrap:wrap;font-size:.8rem}
