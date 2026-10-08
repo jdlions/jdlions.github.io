@@ -1,6 +1,8 @@
 // Explicit allowlist shared by both deployment builds. No public news, mock
 // data, Worker source, credentials or D1 files may enter the frontend output.
 export const editorialFiles = [
+  'assets/fonts/PretendardVariable.woff2',
+  'assets/fonts/Pretendard-LICENSE.txt',
   'assets/images/pridedesk-logo-dark-gold.webp',
   'assets/images/pridedesk-logo-dark-gold-2x.webp',
   'assets/images/pridedesk-symbol-dark-gold.webp',
