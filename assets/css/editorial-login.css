@@ -39,7 +39,7 @@
 .login-header__brand small {
   margin-top: 1px;
   color: var(--muted);
-  font: 400 .57rem DM Mono, monospace;
+  font: 400 .57rem "DM Mono", "Pretendard Variable", monospace;
   letter-spacing: .06em;
   text-transform: uppercase;
 }
@@ -73,7 +73,7 @@
 }
 .login-hero h1 span {
   color: var(--gold-bright);
-  font-family: Playfair Display, serif;
+  font-family: "Playfair Display", "Pretendard Variable", serif;
   font-style: italic;
   font-weight: 500;
 }
@@ -101,7 +101,7 @@
 .login-feature-strip strong {
   margin-bottom: 6px;
   color: var(--gold-bright);
-  font: .58rem DM Mono, monospace;
+  font: .58rem "DM Mono", "Pretendard Variable", monospace;
   letter-spacing: .11em;
   text-transform: uppercase;
 }

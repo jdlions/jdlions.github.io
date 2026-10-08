@@ -4,7 +4,7 @@
 .publication-form .form-actions{margin:0}
 .publication-help{font-size:.85rem;color:var(--muted)}
 .publication-preview{min-width:0;position:sticky;top:90px;overflow-wrap:anywhere}
-.publication-preview h2{font-family:Playfair Display,serif;line-height:1.4}
+.publication-preview h2{font-family:"Playfair Display","Pretendard Variable",serif;line-height:1.4}
 .publication-preview a,.publication-list a{color:var(--gold)}
 .publication-url{font-size:.75rem;color:var(--muted)}
 .publication-history{margin-top:24px}
