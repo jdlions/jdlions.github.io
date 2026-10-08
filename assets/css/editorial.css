@@ -177,3 +177,5 @@ dialog.modal .modal-card{max-height:calc(100dvh - 32px);overflow-y:auto;overscro
 .editor-footer{gap:12px;flex-wrap:wrap;font-size:.8rem}
 
 .review-panes>*{min-width:0}.review-panes .title-fields input{min-width:0;width:100%}
+
+.length-fields{min-width:0;border:1px solid var(--line);border-radius:16px;padding:16px;margin:16px 0}.length-fields input{max-width:100%;min-width:0}.length-dialog{width:min(700px,calc(100vw - 24px));max-height:85vh;overflow:auto}.length-target{padding:12px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}[data-length-state=below]{color:var(--warning)}[data-length-state=above]{color:var(--danger)}[data-length-state=valid]{color:var(--green)}.length-dialog .form-actions{flex-wrap:wrap}

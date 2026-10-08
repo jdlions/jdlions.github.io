@@ -12,24 +12,7 @@ export function readableEditorHtml(html){
   }
   return template.innerHTML;
 }
-export function editorText(editor){
-  // One stored paragraph boundary or BR is one LF. innerText adds two LFs
-  // between P elements, so it would count a single Enter differently from paste.
-  const blocks=new Set(['P','DIV','H1','H2','H3','H4','H5','H6','LI','UL','OL','BLOCKQUOTE','PRE']);
-  const text=node=>{
-    if(node.nodeType===3)return node.nodeValue;
-    if(node.nodeName==='BR')return '\n';
-    if(!node.textContent&&node.childNodes.length===1&&node.firstChild.nodeName==='BR')return '';
-    let result='',previous=null;
-    for(const child of node.childNodes){
-      if(previous&&(blocks.has(previous.nodeName)||blocks.has(child.nodeName)))result+='\n';
-      result+=text(child);previous=child;
-    }
-    return result;
-  };
-  return text(editor).replace(/\r\n?/g,'\n');
-}
-const segmenter=typeof Intl.Segmenter==='function'?new Intl.Segmenter('ko',{granularity:'grapheme'}):null;
+export {editorText,characterCount} from './character-count.js';
 export function editorHtml(editor){
   // Enter in an initially empty Chromium editor creates DIVs. D1's existing
   // sanitizer permits P instead: retain these paragraph boundaries on save.
@@ -38,10 +21,6 @@ export function editorHtml(editor){
     const paragraph=document.createElement('p');paragraph.append(...div.childNodes);div.replaceWith(paragraph);
   }
   return template.innerHTML;
-}
-export function characterCount(text){
-  if(!segmenter)return Array.from(text).length;
-  let count=0;for(const _ of segmenter.segment(text))count++;return count;
 }
 export function bindPlainTextPaste(editor){
   editor.addEventListener('paste',event=>{
