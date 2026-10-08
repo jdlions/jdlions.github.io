@@ -46,6 +46,9 @@ export const editorialFiles = [
   'assets/js/shared/length-rules.js',
   'assets/js/admin/assignment-lengths.js',
   'assets/js/admin/queue-export.js',
+  'assets/js/admin/submission-diff.js',
+  'assets/js/shared/submission-diff.js',
+  'assets/js/shared/submission-diff-background.js',
   'assets/js/shared/ui.js',
   'assets/js/shared/navigation.js',
   'assets/js/shared/issue-publication.js'
