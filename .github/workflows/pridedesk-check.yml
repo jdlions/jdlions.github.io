@@ -12,6 +12,7 @@ on:
       - 'admin/**'
       - 'student/**'
       - '.github/workflows/pridedesk-check.yml'
+      - '.github/workflows/production-deploy.yml'
 permissions:
   contents: read
 jobs:
@@ -27,6 +28,7 @@ jobs:
       - run: npm ci --prefix worker
       - run: npm run check --prefix worker
       - run: npm test --prefix pridedesk
+      - run: node --test scripts/test/*.test.mjs
       - run: npx playwright install --with-deps chromium
         working-directory: worker
       - run: npm run test:browser --prefix worker

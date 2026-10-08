@@ -1,0 +1,7 @@
+{
+  "0008_assignment_lengths.sql": {
+    "mode": "additive",
+    "sha256": "d830bc70b2fa7a346ac47f5668c075897d61784136d72519d865be8f865b142c",
+    "reason": "Reviewed PR #46: nullable limits default to NULL; new audit table is empty. No existing rows are updated or deleted."
+  }
+}

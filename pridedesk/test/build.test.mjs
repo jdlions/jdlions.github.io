@@ -5,6 +5,15 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import '../build.mjs';
 
+test('release metadata contains only commit and asset prefix, covered by no-store',async()=>{
+  const metadata=JSON.parse(await readFile(new URL('../dist/deployment.json',import.meta.url),'utf8'));
+  assert.deepEqual(Object.keys(metadata).sort(),['assets','commit']);
+  assert.match(metadata.assets,/^assets\/build-[a-f0-9]{16}\/$/);
+  assert(metadata.commit===null||/^[a-f0-9]{40}$/.test(metadata.commit));
+  const config=JSON.parse(await readFile(new URL('../vercel.json',import.meta.url),'utf8'));
+  assert.equal(config.headers[0].headers.find(h=>h.key==='Cache-Control').value,'private, no-store');
+});
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const output = resolve(root, 'dist');
 test('output contains only PrideDesk and all HTML/module dependencies resolve', async () => {
