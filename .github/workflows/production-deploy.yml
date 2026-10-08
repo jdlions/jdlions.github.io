@@ -1,0 +1,59 @@
+name: PrideDesk production
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: pridedesk-production
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.repository == 'jdlions/jdlions.github.io' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - name: Existing tests and build
+        run: |
+          npm ci --prefix worker
+          npm run check --prefix worker
+          npm test --prefix pridedesk
+          node --test scripts/test/*.test.mjs
+          python3 scripts/validate.py
+          cd worker
+          npx playwright install --with-deps chromium
+          npm run test:browser
+      - name: Build Worker static assets
+        run: npm run build:static --prefix worker
+      - name: Migrations, Worker, Vercel and production smoke
+        run: node scripts/production-deploy.mjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+      - name: Record release result
+        if: always()
+        run: |
+          if [ ! -f deployment-result.json ]; then
+            echo '{"status":"failure","error":"validation_or_setup_failed_before_deploy"}' > deployment-result.json
+            echo 'Production release stopped during tests/setup; no deployment step ran.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload release result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-${{ github.sha }}-${{ github.run_attempt }}
+          path: deployment-result.json
+          if-no-files-found: ignore

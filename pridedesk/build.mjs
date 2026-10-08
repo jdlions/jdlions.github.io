@@ -38,3 +38,7 @@ for (const page of ['login', 'admin', 'student']) {
   await writeFile(target, html);
 }
 await writeFile(resolve(output, 'robots.txt'), 'User-agent: *\nDisallow: /\n');
+// Public release metadata contains only immutable commit/asset identifiers.
+// The global HTML/API no-store policy also covers this verification file.
+const commit = process.env.VERCEL_GIT_COMMIT_SHA || process.env.GITHUB_SHA || '';
+await writeFile(resolve(output, 'deployment.json'), JSON.stringify({commit:/^[a-f0-9]{40}$/.test(commit)?commit:null, assets:assetPrefix}));
