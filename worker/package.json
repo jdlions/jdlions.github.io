@@ -17,6 +17,7 @@
     "wrangler": "^4.0.0"
   },
   "dependencies": {
-    "fflate": "0.8.2"
+    "fflate": "0.8.2",
+    "parse5": "8.0.0"
   }
 }

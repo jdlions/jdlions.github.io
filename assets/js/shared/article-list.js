@@ -3,12 +3,13 @@ import {customSelect,initCustomSelect,escapeHtml,loadingState} from './ui.js';
 // One controller per list keeps its filters/cursor history while detail is open.
 export function createArticleList(service,{admin=false,overview=false,picker=false,free=false,render,bind=()=>{},busy=()=>{}}){
   const labels={draft:'작성 중',submitted:'제출됨',reviewing:'확인 중',revision_requested:'수정 요청',hold:'보류',approved:'승인',scheduled:'발행 예정'};
+  let ready=false;
   let root,sequence=0,abort,timer,position=0,cursors=[''],data,revision=-1;
   let filters=free?{campaign:'free'}:{};
   function cancel(){sequence++;abort?.abort();clearTimeout(timer);}
   function paint(){
     root.querySelector('[data-list-results]').innerHTML=render(data.items,data);
-    bind(root);busy(false);
+    bind(root);ready=true;busy(false);
     root.querySelector('[data-page-range]').textContent=overview?`${data.students.length}명 · 기사 ${data.stats.total}개`:data.items.length?`${position*20+1}–${position*20+data.items.length}${data.stats?' / '+data.stats.total:''}`:'0개';
     if(!overview)root.querySelector('[data-page-prev]').disabled=position===0;
     if(!overview)root.querySelector('[data-page-next]').disabled=!data.nextCursor;
@@ -19,7 +20,7 @@ export function createArticleList(service,{admin=false,overview=false,picker=fal
   }
   async function load({stats=true,target=position}={}){
     cancel();const current=sequence,host=root;abort=new AbortController();
-    busy(true);host.querySelector('[data-list-message]').innerHTML=loadingState('기사 불러오는 중…',false);
+    ready=false;busy(true);host.querySelector('[data-list-message]').innerHTML=loadingState('기사 불러오는 중…',false);
     host.querySelectorAll('[data-page-prev],[data-page-next]').forEach(b=>b.disabled=true);
     try{
       const page=await service[overview?'articleOverview':'articlePage']({...filters,cursor:cursors[target]||'',stats:stats?'1':'0',...(picker?{picker:'1'}:{})},abort.signal);
@@ -35,7 +36,7 @@ export function createArticleList(service,{admin=false,overview=false,picker=fal
     }
   }
   function change(key,value,debounce=false){
-    filters={...filters,[key]:value.trim()};position=0;cursors=[''];data=undefined;cancel();busy(true);
+    filters={...filters,[key]:value.trim()};position=0;cursors=[''];data=undefined;ready=false;cancel();busy(true);
     root.querySelector('[data-list-message]').innerHTML=loadingState('기사 불러오는 중…',false);
     // Invalidate immediately, including the debounce window.
     root.querySelectorAll('[data-page-prev],[data-page-next]').forEach(b=>b.disabled=true);
@@ -52,5 +53,5 @@ export function createArticleList(service,{admin=false,overview=false,picker=fal
     if(!overview)root.querySelector('[data-page-next]').onclick=()=>{cursors[position+1]=data.nextCursor;load({stats:false,target:position+1});};
     if(data&&revision===(service.listRevision||0))paint();else load();
   }
-  return {mount,cancel,refresh(){data=undefined;return load();}};
+  return {mount,cancel,snapshot(){return ready&&data?structuredClone({data,filters}):null;},refresh(){data=undefined;return load();}};
 }
