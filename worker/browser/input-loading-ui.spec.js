@@ -2,8 +2,9 @@ import {test,expect} from '@playwright/test';
 import {readFileSync} from 'node:fs';
 import {overviewResponse,pageResponse} from './page-fixture.js';
 const article={id:'a',studentId:'s',titleKo:'Test article',status:'draft',articleType:'school',updatedAt:'2026-01-01T00:00:00Z'};
-async function setup(page,role='admin'){
+async function setup(page,role='admin',holdAssignments=false){
  const pending=[],holds=new Set([role==='admin'?'/api/admin/article-overview':'/api/native/articles']);
+ if(holdAssignments)holds.add('/api/assignments');
  await page.route('**/api/**',async route=>{
   const url=new URL(route.request().url()),p=url.pathname;
   if(holds.has(p)){pending.push({route,url});return;}
@@ -28,12 +29,18 @@ test('loading removes spinner for empty/error and retry success',async({page})=>
  await page.locator('[data-retry-startup]').click();await expect(page.locator('.loading-spinner')).toBeVisible();await s.reply();await expect(page.locator('[data-open]')).toBeVisible();await expect(page.locator('.loading-spinner')).toHaveCount(0);
 });
 test('pagination/search keep loading until latest request completes and respect reduced motion',async({page})=>{
- await page.clock.install();await page.emulateMedia({reducedMotion:'reduce'});const s=await setup(page,'student');
- expect(await page.locator('.loading-spinner').evaluate(e=>getComputedStyle(e).animationName)).toBe('none');
- await s.reply({...pageResponse([article]),nextCursor:'next'});await expect(page.locator('[data-page-next]')).toBeEnabled();await page.locator('[data-page-next]').click();await expect(page.locator('.loading-spinner')).toBeVisible();await s.reply();await expect(page.locator('.loading-spinner')).toHaveCount(0);
- await page.locator('[data-query]').fill('old');await page.clock.fastForward(350);await expect.poll(()=>s.pending.length).toBe(1);
- await page.locator('[data-query]').fill('new');await expect(page.locator('.loading-spinner')).toBeVisible();await page.clock.fastForward(350);await expect.poll(()=>s.pending.length).toBe(2);
- await s.reply(pageResponse([{...article,titleKo:'Old'}]));await expect(page.locator('.loading-spinner')).toBeVisible();await s.reply(pageResponse([{...article,titleKo:'Newest'}]));await expect(page.locator('.native-card')).toContainText('Newest');await expect(page.locator('.loading-spinner')).toHaveCount(0);
+ // Keep assignments pending: independent regions legitimately show two spinners.
+ await page.clock.install();await page.emulateMedia({reducedMotion:'reduce'});const s=await setup(page,'student',true);
+ const articleSpinner=page.locator('[data-list-message] .loading-spinner'),assignmentSpinner=page.locator('[data-assignment-home] .loading-spinner');
+ await expect(assignmentSpinner).toBeVisible();await expect(page.locator('.loading-spinner')).toHaveCount(2);
+ const replyArticle=async(data=pageResponse([article]))=>{await expect.poll(()=>s.pending.some(p=>p.url.pathname==='/api/native/articles')).toBe(true);await s.reply(data,200,s.pending.findIndex(p=>p.url.pathname==='/api/native/articles'));};
+ expect(await articleSpinner.evaluate(e=>getComputedStyle(e).animationName)).toBe('none');
+ await replyArticle({...pageResponse([article]),nextCursor:'next'});await expect(page.locator('[data-page-next]')).toBeEnabled();await page.locator('[data-page-next]').click();await expect(articleSpinner).toBeVisible();await replyArticle();await expect(articleSpinner).toHaveCount(0);
+ await page.locator('[data-query]').fill('old');await page.clock.fastForward(350);await expect.poll(()=>s.pending.filter(p=>p.url.pathname==='/api/native/articles').length).toBe(1);
+ await page.locator('[data-query]').fill('new');await expect(articleSpinner).toBeVisible();await page.clock.fastForward(350);await expect.poll(()=>s.pending.filter(p=>p.url.pathname==='/api/native/articles').length).toBe(2);
+ await replyArticle(pageResponse([{...article,titleKo:'Old'}]));await expect(articleSpinner).toBeVisible();await replyArticle(pageResponse([{...article,titleKo:'Newest'}]));await expect(page.locator('.native-card')).toContainText('Newest');await expect(articleSpinner).toHaveCount(0);
+ await expect(assignmentSpinner).toBeVisible();expect(await assignmentSpinner.evaluate(e=>getComputedStyle(e).animationName)).toBe('none');
+ await s.reply({campaigns:[],assignments:[]},200,s.pending.findIndex(p=>p.url.pathname==='/api/assignments'));await expect(page.locator('.loading-spinner')).toHaveCount(0);
 });
 test('assignment/photo/roster loading stays local and student filters share the surface',async({page})=>{
  const s=await setup(page);await s.reply();await expect(page.locator('[data-open]')).toBeVisible();s.holds.add('/api/assignments');
