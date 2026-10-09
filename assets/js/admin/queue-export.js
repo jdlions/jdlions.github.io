@@ -13,13 +13,20 @@ export function exportRows(data){return [...data.students].sort(compareStudents)
 export function pngFilename(title,date){const clean=String(title).normalize('NFC').replace(/[<>:"/\\|?*\u0000-\u001f]/g,'-').replace(/\s+/g,'-').replace(/[. ]+$/g,'').slice(0,70)||'전체';const p=n=>String(n).padStart(2,'0');return `PrideDesk_기사현황_${clean}_${date.getFullYear()}-${p(date.getMonth()+1)}-${p(date.getDate())}_${p(date.getHours())}${p(date.getMinutes())}.png`;}
 export async function createQueuePng(data,filters={},date=new Date()){
  const rows=exportRows(data);if(!rows.length)throw new Error('현재 조건에 해당하는 학생이 없습니다.');
- await document.fonts.ready;
+ // Canvas does not inherit the page CSS font. Load and verify the exact face
+ // before measuring text or drawing; never export a silent system-font fallback.
+ const fontError=()=>new Error('Pretendard 폰트를 불러오지 못했습니다. 페이지를 새로고침한 뒤 다시 시도해 주세요.');
+ let fontTimer;
+ try{
+  const faces=await Promise.race([document.fonts.load('400 16px "Pretendard Variable"','기사 제출 현황 학번 이름 학교기사 피처기사'),new Promise((_,reject)=>{fontTimer=setTimeout(()=>reject(fontError()),30000);})]);
+  if(!faces.some(face=>face.status==='loaded'&&face.family.replaceAll('"','')==='Pretendard Variable')||!document.fonts.check('400 16px "Pretendard Variable"'))throw fontError();
+ }catch{throw fontError();}finally{clearTimeout(fontTimer);}
  const image=new Image();image.src=new URL('../../images/pridedesk-logo-dark-gold-2x.webp',import.meta.url).href;await image.decode();
  const palette=new Map();for(const state of new Set(rows.flatMap(r=>[...r.school,...r.feature].map(x=>x.status)))){
   const host=document.createElement('span');host.innerHTML=statusBadge(state);document.body.append(host);const badge=host.firstChild,style=getComputedStyle(badge);palette.set(state,{text:badge.textContent,color:style.color,background:style.backgroundColor});host.remove();
  }
  const canvas=document.createElement('canvas');canvas.width=1200;const ctx=canvas.getContext('2d');
- const font=size=>`${size}px system-ui, "Malgun Gothic", sans-serif`;
+ const font=size=>`400 ${size}px "Pretendard Variable"`;
  const wrap=(text,width,size)=>{ctx.font=font(size);const lines=[];let line='';for(const char of String(text)){if(line&&ctx.measureText(line+char).width>width){lines.push(line);line='';}line+=char;}lines.push(line);return lines;};
  const title=filters.campaign==='free'?'자유 기사':data.campaigns?.find(c=>c.id===filters.campaign)?.name||'전체 과제';
  const titleLines=wrap(title,1090,30);
