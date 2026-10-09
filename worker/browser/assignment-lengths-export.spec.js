@@ -85,3 +85,37 @@ test('PNG never prints opaque ID/name fallbacks, emails or raw identity search t
 for(const width of [390,820,1440])test('length settings and student counter responsive '+width,async({page},info)=>{
  await page.setViewportSize({width,height:900});await setup(page,{view:'assignments',limits:{minCharacters:3,maxCharacters:8}});await page.locator('[data-edit-campaign]').click();await page.locator('[data-inspect]').click();await expect(page.locator('[data-length-preview]')).toContainText('반려 대상');expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.screenshot({path:info.outputPath('limits-'+width+'.png'),fullPage:true});await page.locator('[data-close]').click();await page.unroute('**/api/**');await setup(page,{role:'student',limits:{minCharacters:900,maxCharacters:1100}});await expect(page.locator('[data-count]')).toContainText('898자 부족');expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.screenshot({path:info.outputPath('student-'+width+'.png'),fullPage:true});
 });
+
+test('PNG waits for verified Pretendard before measuring/drawing and uses it for every label',async({page},info)=>{
+ await setup(page,{count:2});
+ await page.evaluate(()=>{
+  const load=document.fonts.load.bind(document.fonts),fill=CanvasRenderingContext2D.prototype.fillText,measure=CanvasRenderingContext2D.prototype.measureText;
+  window.pngFonts=[];window.pngFontWaiting=false;
+  document.fonts.load=(...args)=>{window.pngFontWaiting=true;window.pngFontRequest=args;return new Promise((resolve,reject)=>window.releasePngFont=()=>load(...args).then(resolve,reject));};
+  CanvasRenderingContext2D.prototype.fillText=function(text,...args){window.pngFonts.push({op:'draw',text,font:this.font});return fill.call(this,text,...args);};
+  CanvasRenderingContext2D.prototype.measureText=function(text){window.pngFonts.push({op:'measure',text,font:this.font});return measure.call(this,text);};
+ });
+ await page.locator('[data-export-list]').click();await expect.poll(()=>page.evaluate(()=>window.pngFontWaiting)).toBe(true);
+ expect(await page.evaluate(()=>window.pngFonts)).toEqual([]);await expect(page.locator('[data-export-list]')).toBeDisabled();
+ const download=page.waitForEvent('download');await page.evaluate(()=>window.releasePngFont());const file=await download;
+ const path=info.outputPath('pretendard-queue.png');await file.saveAs(path);await info.attach('Pretendard PNG',{path,contentType:'image/png'});
+ const fonts=await page.evaluate(()=>window.pngFonts);expect(fonts.length).toBeGreaterThan(15);
+ expect(fonts.every(x=>x.font.includes('Pretendard Variable')&&!/system-ui|Malgun/.test(x.font))).toBe(true);
+ for(const label of ['기사 제출 현황','학번','이름','학교기사','피처기사'])expect(fonts.some(x=>x.op==='draw'&&x.text===label)).toBe(true);
+ expect(fonts.some(x=>x.op==='draw'&&x.text.includes('김아주긴이름'))).toBe(true);expect(fonts.some(x=>x.op==='draw'&&/작성 중|제출됨|확인 중/.test(x.text))).toBe(true);
+ expect(await page.evaluate(()=>window.pngFontRequest[0])).toBe('400 16px "Pretendard Variable"');
+ const bytes=readFileSync(path);expect(bytes.subarray(1,4).toString()).toBe('PNG');expect(bytes.readUInt32BE(16)).toBe(1200);
+ await expect(page.locator('[data-export-list]')).toBeEnabled();
+});
+for(const failure of ['rejected','missing','wrong-face','check-failed','timeout'])test('PNG refuses system-font fallback: '+failure,async({page})=>{
+ await setup(page,{count:2});if(failure==='timeout')await page.clock.install();
+ let downloads=0;page.on('download',()=>downloads++);
+ await page.evaluate(failure=>{
+  window.pngDraws=0;const fill=CanvasRenderingContext2D.prototype.fillText;CanvasRenderingContext2D.prototype.fillText=function(...args){window.pngDraws++;return fill.apply(this,args);};
+  document.fonts.load=()=>failure==='rejected'?Promise.reject(new Error('network failure')):failure==='timeout'?new Promise(()=>{}):Promise.resolve(failure==='missing'?[]:[{family:failure==='wrong-face'?'Arial':'Pretendard Variable',status:'loaded'}]);
+  if(failure==='check-failed')document.fonts.check=()=>false;
+ },failure);
+ await page.locator('[data-export-list]').click();if(failure==='timeout')await page.clock.fastForward(30001);
+ await expect(page.locator('[data-toast]')).toContainText('Pretendard 폰트를 불러오지 못했습니다.');await expect(page.locator('[data-export-list]')).toBeEnabled();
+ expect(downloads).toBe(0);expect(await page.evaluate(()=>window.pngDraws)).toBe(0);
+});
