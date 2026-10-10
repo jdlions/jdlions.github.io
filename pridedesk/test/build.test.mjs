@@ -77,3 +77,16 @@ test('official branding and social assets resolve within the versioned build; or
  }
  const login=await readFile(resolve(output,'login/index.html'),'utf8');const image=login.match(/property="og:image" content="([^"]+)"/)[1];const url=new URL(image);assert.equal(url.origin,'https://pridesk.vercel.app');assert.match(url.pathname,/assets\/build-[a-f0-9]+\/images\/pridedesk-social\.webp/);await access(resolve(output,'.'+url.pathname));assert(login.includes('name="twitter:image" content="'+image+'"'));
 });
+
+
+test('social preview metadata shares the root URL and image without relaxing noindex or login routing',async()=>{
+ const html=await readFile(resolve(output,'login/index.html'),'utf8');
+ const meta=key=>html.match(new RegExp('(?:name|property)="'+key+'" content="([^"\\n]+)"'))?.[1];
+ for(const key of ['og:title','twitter:title'])assert.equal(meta(key),"PrideDesk · The Lion's Pride");
+ for(const key of ['description','og:description','twitter:description'])assert.equal(meta(key),'중동고등학교 영자신문부 공식 기사 작성·편집 워크스페이스');
+ assert.equal(meta('og:url'),'https://pridesk.vercel.app/');assert.equal(meta('og:image'),meta('twitter:image'));assert.equal(meta('og:image:type'),'image/webp');assert.equal(meta('og:image:width'),'1200');assert.equal(meta('og:image:height'),'630');assert.equal(meta('twitter:card'),'summary_large_image');assert.equal(meta('robots'),'noindex, nofollow');
+ const bytes=await readFile(resolve(output,'.'+new URL(meta('og:image')).pathname));assert.equal(bytes.subarray(0,4).toString(),'RIFF');assert.equal(bytes.subarray(8,12).toString(),'WEBP');
+ const config=JSON.parse(await readFile(resolve(root,'vercel.json'),'utf8'));
+ assert(config.redirects.some(r=>r.source==='/'&&r.destination==='/login/'&&r.permanent===false));
+ assert(config.headers[0].headers.some(h=>h.key==='X-Robots-Tag'&&h.value==='noindex, nofollow'));
+});
