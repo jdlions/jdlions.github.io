@@ -14,3 +14,68 @@ select option:disabled{color:#aaa59c}
 
 .brand-lockup{display:flex;flex-direction:column;align-items:flex-start;gap:4px}
 .brand-lockup::before{content:none;display:none}
+/* Compact touch layouts only; desktop typography and spacing remain unchanged. */
+@media(max-width:768px){
+ .app-header{height:56px;inset:8px 10px auto;padding:0 8px;border-radius:18px;gap:8px}
+ .app-header .icon-btn{display:block;width:44px;height:44px;min-width:44px;padding:0;border-radius:13px}
+ .app-header .official-brand img{max-width:130px;max-height:34px;object-fit:contain}
+ .brand-lockup small{display:none}
+ .app-sidebar{top:74px;bottom:10px;left:10px;width:min(300px,calc(100vw - 20px));transform:translateX(calc(-100% - 20px));transition-property:transform;border-radius:22px}
+ .app-sidebar:not(.is-open){visibility:hidden}
+ .app-sidebar.is-open{transform:none;visibility:visible}
+ .app-sidebar button,.app-sidebar a{transition-property:background,border-color,color,box-shadow,transform}
+ .app-main{margin:0;width:100%;padding:84px 14px 40px}
+ .editorial-footer{margin-left:0}
+ .page-head{gap:12px;margin-bottom:18px;align-items:flex-start;flex-direction:column}
+ .page-head>div{min-width:0;max-width:100%}
+ .page-head h1{font-size:1.65rem;line-height:1.25;overflow-wrap:anywhere}
+ .page-head p{margin-top:8px;font-size:.9rem;line-height:1.6}
+ .writer-head h1 .writer-identity{display:block;font-size:.9rem;font-weight:400;color:var(--muted);letter-spacing:normal;margin-bottom:6px}
+ .writer-head h1 .writer-honorific{display:none}
+ .panel{padding:16px;border-radius:20px}
+ .stats-grid,.quick-grid{gap:10px}
+ .stat,.quick{min-height:88px;padding:14px}
+ .stat strong{font-size:1.6rem}
+ .assignment-group>header,.campaign-row>header{padding:16px;gap:12px;display:flex;flex-direction:column;align-items:stretch}
+ .assignment-group>header h2,.campaign-row h2{font-size:1.2rem;line-height:1.4;overflow-wrap:anywhere}
+ .assignment-group>header>div:last-child{flex-direction:row;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
+ .assignment-slot{display:grid;grid-template-columns:minmax(0,1fr);padding:16px;gap:12px}
+ .assignment-slot h3{font-size:1rem;line-height:1.4;overflow-wrap:anywhere}
+ .assignment-slot p{font-size:.9rem;line-height:1.6}
+ .assignment-slot-action{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:center}
+ .assignment-slot-action .status{width:max-content;max-width:100%}
+ .assignment-slot-action small{text-align:right;overflow-wrap:anywhere}
+ .assignment-slot-action button{grid-column:1/-1;padding:10px 14px;font-size:.95rem;line-height:1.4}
+ .assignment-context{flex-wrap:wrap;overflow-wrap:anywhere}
+ button,.file-button,.side-nav a{min-height:44px}
+ button{min-width:44px}
+ input:not([type=checkbox]):not([type=radio]):not([type=file]),select,.custom-select__trigger,textarea{font-size:16px}
+ input:not([type=checkbox]):not([type=radio]):not([type=file]),select,.custom-select__trigger{min-height:44px}
+ .custom-select__menu{min-width:0;max-width:calc(100vw - 28px);max-height:min(320px,50dvh);overflow-y:auto;overscroll-behavior:contain}
+ .custom-select__menu button{min-height:44px;white-space:normal;overflow-wrap:anywhere}
+ .custom-select__menu button b{flex-shrink:0;margin-left:8px}
+ .queue-tools,.assignment-toolbar,.form-grid{min-width:0}
+ .queue-tools>*{min-width:0}
+ .queue-page-controls{flex-wrap:wrap}
+ .article-queue-entry{min-width:0}
+ .document-layout,.review-panes{grid-template-columns:minmax(0,1fr);gap:14px}
+ .document-surface,.article-side{min-width:0}
+ .composer-top{top:72px;flex-wrap:wrap;gap:8px;padding:8px 0}
+ .composer-actions{flex-wrap:wrap;gap:8px;min-width:0}
+ .composer-actions button,.composer-actions .file-button{padding:10px;font-size:.85rem}
+ .save-state{order:3;flex-basis:100%;overflow-wrap:anywhere}
+ .article-tabs{flex-wrap:wrap;gap:4px}
+ .title-fields,.native-editor{padding-inline:16px}
+ .native-editor{min-height:280px;overflow-wrap:anywhere}
+ .editor-toolbar{padding-inline:12px;flex-wrap:wrap}
+ .modal{padding:12px}
+ .modal-card,.submission-diff-dialog,.assignment-delete-dialog{padding:16px;max-width:calc(100vw - 24px)}
+ dialog.modal .modal-card{max-height:calc(100dvh - 24px)}
+ .modal-head{gap:10px;align-items:flex-start}
+ .modal-head h2{font-size:1.2rem;overflow-wrap:anywhere;min-width:0}
+ .modal-head button{flex-shrink:0;width:44px}
+ .form-actions{flex-wrap:wrap}
+ .photo-grid{gap:12px}
+ .photo-info{padding:14px;min-width:0}
+ .toast{left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));max-width:calc(100vw - 24px);overflow-wrap:anywhere}
+}
