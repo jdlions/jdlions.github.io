@@ -11,25 +11,15 @@ on:
       - 'login/**'
       - 'admin/**'
       - 'student/**'
+      - '.github/actions/pridedesk-validation/**'
       - '.github/workflows/pridedesk-check.yml'
       - '.github/workflows/production-deploy.yml'
 permissions:
   contents: read
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: worker/package-lock.json
-      - run: npm ci --prefix worker
-      - run: npm run check --prefix worker
-      - run: npm test --prefix pridedesk
-      - run: node --test scripts/test/*.test.mjs
-      - run: npx playwright install --with-deps chromium
-        working-directory: worker
-      - run: npm run test:browser --prefix worker
-      - run: python3 scripts/validate.py
+      - name: Existing tests and build
+        uses: ./.github/actions/pridedesk-validation
