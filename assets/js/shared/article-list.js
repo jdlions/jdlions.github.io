@@ -3,7 +3,7 @@ import {customSelect,initCustomSelect,escapeHtml,loadingState} from './ui.js';
 // One controller per list keeps its filters/cursor history while detail is open.
 export function createArticleList(service,{admin=false,overview=false,picker=false,free=false,render,bind=()=>{},busy=()=>{}}){
   const labels={draft:'작성 중',submitted:'제출됨',reviewing:'확인 중',revision_requested:'수정 요청',hold:'보류',approved:'승인',scheduled:'발행 예정'};
-  let ready=false;
+  let ready=false,campaignOptionsKey;
   let root,sequence=0,abort,timer,position=0,cursors=[''],data,revision=-1;
   let filters=free?{campaign:'free'}:{};
   function cancel(){sequence++;abort?.abort();clearTimeout(timer);}
@@ -16,7 +16,16 @@ export function createArticleList(service,{admin=false,overview=false,picker=fal
     const stats=root.querySelector('[data-list-stats]');
     if(stats&&data.stats){stats.innerHTML=Object.keys(labels).filter(s=>s!=='draft').map(s=>`<button type="button" data-filter="${s}"><strong>${data.stats.byStatus[s]||0}</strong><span>${labels[s]}</span></button>`).join('');stats.querySelectorAll('button').forEach(b=>b.onclick=()=>root.querySelector('[data-status-filter]').closest('[data-custom-select]')._customSelect.setValue(b.dataset.filter,true));}
     const campaigns=root.querySelector('[data-campaign-control]');
-    if(campaigns&&data.campaigns){campaigns.querySelector('[data-custom-select]')?._customSelect?.close(false);campaigns.innerHTML=customSelect('campaign-filter','모든 과제',[['','모든 과제'],['free','자유 기사'],...data.campaigns.map(c=>[c.id,c.name])],{value:filters.campaign||''});initCustomSelect(campaigns.querySelector('[data-custom-select]'),value=>change('campaign',value));}
+    if(campaigns&&data.campaigns){
+      const options=[['','모든 과제'],['free','자유 기사'],...data.campaigns.map(c=>[c.id,c.name])],key=JSON.stringify(options),control=campaigns.querySelector('[data-custom-select]');
+      // Search/filter responses must not detach an unchanged, possibly open menu.
+      if(!control||key!==campaignOptionsKey){
+        control?._customSelect?.close(false);
+        campaigns.innerHTML=customSelect('campaign-filter','모든 과제',options,{value:filters.campaign||''});
+        campaignOptionsKey=key;
+        initCustomSelect(campaigns.querySelector('[data-custom-select]'),value=>change('campaign',value));
+      }else if(control.querySelector('input').value!==(filters.campaign||''))control._customSelect.setValue(filters.campaign||'');
+    }
   }
   async function load({stats=true,target=position}={}){
     cancel();const current=sequence,host=root;abort=new AbortController();
