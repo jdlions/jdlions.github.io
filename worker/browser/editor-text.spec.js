@@ -23,7 +23,7 @@ for(const role of ['student','admin'])for(const width of [390,820,1440])test(rol
  expect(foot.y).toBeGreaterThanOrEqual(nav.y+nav.height);expect(foot.y).toBeGreaterThanOrEqual(logout.y+logout.height);expect(foot.y+foot.height).toBeLessThanOrEqual(side.y+side.height);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  await page.screenshot({path:info.outputPath('sidebar-'+role+'-'+width+'.png')});
  if(width===390)await page.locator('[data-menu]').click();
- const editor=await page.locator('[data-editor]').boundingBox(),counter=await page.locator('[data-count]').boundingBox();expect(counter.y).toBeGreaterThanOrEqual(editor.y+editor.height);
+ assertEditorLayout(await editorLayout(page));
 });
 
 async function setup(page,{role='student',type='school',html='<p>기존 원고</p>',status='draft'}={}){
@@ -126,9 +126,53 @@ test('admin source/editor safely render legacy styles and plain paste preserves 
   await expect(page.locator('[data-save-state]')).toContainText('저장됨');expect(state.article.editorDraftHtml).toContain('<br>');expect(state.article.draftHtml).toContain('학생 원본');
 });
 
-for(const width of [390,820,1440])test('counter remains below editor with no overlap or overflow '+width,async({page},info)=>{
-  await page.setViewportSize({width,height:900});await setup(page);await page.locator('[data-editor]').fill('한글  English');await expectCount(page,11);
-  const editor=await page.locator('[data-editor]').boundingBox(),counter=await page.locator('[data-count]').boundingBox();
-  expect(counter.y).toBeGreaterThanOrEqual(editor.y+editor.height);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-  await page.screenshot({path:info.outputPath('editor-counter-'+width+'.png'),fullPage:true});
+// The theme is injected after session loading; editor visibility alone does not
+// mean CSS/fonts have settled. Read every rectangle synchronously in one browser
+// evaluation, so reflow or scroll cannot mix two viewport coordinate systems.
+async function editorLayout(page){
+ await page.waitForFunction(()=>Boolean(document.querySelector('link[data-liquid-glass-theme]')?.sheet));
+ await page.evaluate(()=>document.fonts.ready);
+ return page.evaluate(()=>{
+  const editor=document.querySelector('[data-editor]'),counter=document.querySelector('[data-count]'),footer=counter.closest('.editor-footer');
+  const e=editor.getBoundingClientRect(),c=counter.getBoundingClientRect(),f=footer.getBoundingClientRect(),toolbar=editor.previousElementSibling.getBoundingClientRect();
+  return {editorTop:e.top,editorBottom:e.bottom,counterTop:c.top,counterBottom:c.bottom,counterLeft:c.left,counterRight:c.right,footerTop:f.top,footerBottom:f.bottom,footerLeft:f.left,footerRight:f.right,toolbarBottom:toolbar.bottom,overflow:document.documentElement.scrollWidth>innerWidth,scrollY,themeLoaded:Boolean(document.querySelector('[data-liquid-glass-theme]').sheet),fonts:document.fonts.status};
+ });
+}
+function assertEditorLayout(layout){
+ const detail=JSON.stringify(layout);
+ expect(layout.themeLoaded,detail).toBe(true);expect(layout.fonts,detail).toBe('loaded');
+ expect(layout.counterTop,detail).toBeGreaterThanOrEqual(layout.editorBottom);
+ expect(layout.footerTop,detail).toBeGreaterThanOrEqual(layout.editorBottom);
+ expect(layout.counterBottom,detail).toBeLessThanOrEqual(layout.footerBottom);
+ expect(layout.counterLeft,detail).toBeGreaterThanOrEqual(layout.footerLeft);expect(layout.counterRight,detail).toBeLessThanOrEqual(layout.footerRight);
+ expect(layout.toolbarBottom,detail).toBeLessThanOrEqual(layout.editorTop);expect(layout.overflow,detail).toBe(false);
+}
+for(const role of ['student','admin'])for(const width of [360,390,430,768,820,1440])test(`${role} counter remains below editor with no overlap or overflow ${width}`,async({page},info)=>{
+ await page.setViewportSize({width,height:900});await setup(page,{role});await expectCount(page,5);assertEditorLayout(await editorLayout(page));
+ await page.locator('[data-editor]').fill('한글  English');await expectCount(page,11);const layout=await editorLayout(page);assertEditorLayout(layout);
+ await info.attach('layout.json',{body:JSON.stringify(layout),contentType:'application/json'});
+ await page.screenshot({path:info.outputPath(`editor-counter-${role}-${width}.png`),fullPage:true});
+});
+
+test('counter layout waits for delayed theme/fonts and stays valid after scroll',async({page},info)=>{
+ await page.setViewportSize({width:390,height:900});
+ let releaseTheme,releaseFont;
+ const themeGate=new Promise(resolve=>releaseTheme=resolve),fontGate=new Promise(resolve=>releaseFont=resolve);
+ await page.route('**/editorial-liquid-glass.css',async route=>{await themeGate;await route.continue();});
+ await page.route('**/PretendardVariable.woff2',async route=>{await fontGate;await route.continue();});
+ try{
+  const starting=setup(page);await expect(page.locator('[data-editor]')).toBeVisible();await page.locator('[data-editor]').fill('한글  English');await expectCount(page,11);
+  expect(await page.locator('[data-liquid-glass-theme]').evaluate(el=>Boolean(el.sheet))).toBe(false);
+  const checking=editorLayout(page);releaseTheme();releaseFont();await starting;const ready=await checking;assertEditorLayout(ready);
+  await page.evaluate(()=>scrollTo(0,0));const staleEditor=await page.locator('[data-editor]').boundingBox();
+  await page.evaluate(()=>scrollBy(0,52));const staleCounter=await page.locator('[data-count]').boundingBox();
+  const current=await editorLayout(page);assertEditorLayout(current);
+  expect(current.scrollY).toBe(52);expect(current.counterTop-current.editorBottom).toBe(13);
+  // Reproduce CI's -39px false overlap while same-frame geometry is +13px.
+  expect(staleCounter.y-staleEditor.y-staleEditor.height).toBe(-39);
+  await info.attach('scroll-race.json',{body:JSON.stringify({staleEditor,staleCounter,current}),contentType:'application/json'});
+  // Negative control: an actual overlap must still fail the unchanged strict bound.
+  await page.locator('[data-count]').evaluate(el=>el.style.transform='translateY(-40px)');
+  const overlapping=await editorLayout(page);expect(overlapping.counterTop).toBeLessThan(overlapping.editorBottom);expect(()=>assertEditorLayout(overlapping)).toThrow();
+ }finally{releaseTheme();releaseFont();}
 });
