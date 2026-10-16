@@ -29,4 +29,4 @@ Merge requires Worker deployment through the existing pipeline. No migration or 
 
 Other uses of redirect:error in Slack and photo-thumbnail code are outside this project-creation hotfix and remain unchanged; they merit a separate runtime-backed fix.
 
-Validation: Worker 257 / frontend build tests 7 / deployment scripts 19 / Chrome browser 177 passed (460 total). Frontend build, Worker dry-run build, validate and diff checks passed.
+Validation: Worker 257 / frontend build tests 7 / deployment scripts 19 passed. Frontend build, Worker dry-run build, validate and diff checks passed. The first Chrome run passed 176/177: a pre-existing menu autofocus race in the photo-modal test required waiting for the initial navigation focus before explicitly focusing Upload. The test retains its assertions and additionally verifies the initial focus. No UI implementation was changed. The focused test passed five consecutive runs; the final full Chrome run passed 177/177. Final total: 460 tests passed.
