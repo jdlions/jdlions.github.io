@@ -3,7 +3,9 @@ const root='https://www.googleapis.com';
 export const CHUNK_BYTES=2*1024*1024;
 const error=()=>Object.assign(new Error('Drive 연결을 확인한 뒤 다시 시도해 주세요. 파일은 삭제되지 않습니다.'),{status:502,code:'editorial_drive_error'});
 async function call(url,token,init={},timeout=120000){
-  return fetchWithTimeout(url,{...init,redirect:'error',headers:{Authorization:`Bearer ${token}`,...init.headers}},timeout,error);
+  // Workers supports manual/follow only. Callers reject non-success responses;
+  // manual also prevents forwarding the bearer token to a redirect target.
+  return fetchWithTimeout(url,{...init,redirect:'manual',headers:{Authorization:`Bearer ${token}`,...init.headers}},timeout,error);
 }
 async function json(path,token,init={}){const r=await call(root+path,token,init);if(!r.ok){await r.body?.cancel();throw error();}return r.json();}
 export const editorialDrive={
