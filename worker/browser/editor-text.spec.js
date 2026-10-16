@@ -164,8 +164,14 @@ test('counter layout waits for delayed theme/fonts and stays valid after scroll'
   const starting=setup(page);await expect(page.locator('[data-editor]')).toBeVisible();await page.locator('[data-editor]').fill('한글  English');await expectCount(page,11);
   expect(await page.locator('[data-liquid-glass-theme]').evaluate(el=>Boolean(el.sheet))).toBe(false);
   const checking=editorLayout(page);releaseTheme();releaseFont();await starting;const ready=await checking;assertEditorLayout(ready);
-  await page.evaluate(()=>scrollTo(0,0));const staleEditor=await page.locator('[data-editor]').boundingBox();
-  await page.evaluate(()=>scrollBy(0,52));const staleCounter=await page.locator('[data-count]').boundingBox();
+  // Deliberately mix scroll origins inside one JS task: independent awaited
+  // reads would also allow unrelated subpixel reflow, making this reproduction
+  // race with itself. The actual layout guard below still samples one viewport.
+  const {staleEditor,staleCounter}=await page.evaluate(()=>{
+   scrollTo(0,0);const e=document.querySelector('[data-editor]').getBoundingClientRect();
+   scrollBy(0,52);const c=document.querySelector('[data-count]').getBoundingClientRect();
+   return {staleEditor:{y:e.y,height:e.height},staleCounter:{y:c.y}};
+  });
   const current=await editorLayout(page);assertEditorLayout(current);
   expect(current.scrollY).toBe(52);expect(current.counterTop-current.editorBottom).toBe(13);
   // Reproduce CI's -39px false overlap while same-frame geometry is +13px.

@@ -43,3 +43,8 @@ article-list.js now retains the campaign control when the option IDs/names/order
 New 390/820/1440px tests cover search/clear while open, mouse and keyboard selection, combined grade/type/status/campaign filters, refreshed option labels/additions, empty results and reset to all students. Chromium/WebKit cross checks: 14 passed. Original 1440px scenario plus deterministic regression repeated five times each in Chromium: 10 passed. The earlier counter geometry fix and Drive redirect:manual remain unchanged. No Worker/D1/auth/deployment configuration changes.
 
 Combined local validation after the filter fix: complete Chromium suite 190 / Worker 257 / frontend 7 / deployment scripts 19: 473 passed. Frontend build, validate and diff checks passed. GitHub checks must additionally pass for the new PR head.
+
+
+The first follow-up CI run (38901716942) passed every filter test but exposed a second measurement race in the old diagnostic itself: -39.171875 instead of the exact -39 assertion. Its two independent awaited geometry reads allowed 0.171875px of unrelated layout movement. The diagnostic now deliberately changes the scroll origin within a single synchronous JS task, isolating the intended 52px mutation. The exact -39 assertion, same-viewport strict overlap/containment checks, and genuine-overlap negative control remain unchanged; no tolerance/retry is added.
+
+The isolated scroll diagnostic passed 20 focused Chromium/WebKit runs after this correction. Actual counter containment checks remain strict and unchanged.
