@@ -42,3 +42,6 @@ await writeFile(resolve(output, 'robots.txt'), 'User-agent: *\nDisallow: /\n');
 // The global HTML/API no-store policy also covers this verification file.
 const commit = process.env.VERCEL_GIT_COMMIT_SHA || process.env.GITHUB_SHA || '';
 await writeFile(resolve(output, 'deployment.json'), JSON.stringify({commit:/^[a-f0-9]{40}$/.test(commit)?commit:null, assets:assetPrefix}));
+
+// Narrow-scope download streaming helper; no application/offline caching.
+await cp(resolve(repository,'assets/js/shared/editorial-download-worker.js'),resolve(output,'editorial-download-worker.js'));

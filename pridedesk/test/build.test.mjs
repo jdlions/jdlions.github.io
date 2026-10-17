@@ -18,7 +18,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const output = resolve(root, 'dist');
 test('output contains only PrideDesk and all HTML/module dependencies resolve', async () => {
   const files = await readdir(output, { recursive: true });
-  assert(!files.some(file => /mock|worker|migrations|^data|^index.html|\.env/.test(file)));
+  assert(!files.some(file => /mock|migrations|^data|^index.html|\.env/.test(file)||(file.includes('worker')&&!file.endsWith('editorial-download-worker.js'))));
   for (const file of files.filter(file => /\.(html|js|css)$/.test(file))) {
     const path = resolve(output, file);
     const source = await readFile(path, 'utf8');
@@ -89,4 +89,14 @@ test('social preview metadata shares the root URL and image without relaxing noi
  const config=JSON.parse(await readFile(resolve(root,'vercel.json'),'utf8'));
  assert(config.redirects.some(r=>r.source==='/'&&r.destination==='/login/'&&r.permanent===false));
  assert(config.headers[0].headers.some(h=>h.key==='X-Robots-Tag'&&h.value==='noindex, nofollow'));
+});
+
+
+test('download-only worker ships without credentials, offline cache or application scope',async()=>{
+ const source=await readFile(resolve(root,'../assets/js/shared/editorial-download-worker.js'),'utf8');
+ assert.equal(await readFile(resolve(output,'editorial-download-worker.js'),'utf8'),source);
+ assert.doesNotMatch(source,/Authorization|upload_url|caches\.|accessToken|drive_file_id/);
+ const files=await readdir(output,{recursive:true});const helper=await readFile(resolve(output,files.find(f=>f.replaceAll('\\','/').endsWith('/js/shared/editorial-download.js'))),'utf8');
+ assert.match(helper,/scope:'\/editorial-download\/'/);assert.doesNotMatch(helper,/scope:'\/'/);
+ assert.match(source,/'Cache-Control':'private, no-store'/);assert.match(source,/Range:/);assert.match(source,/credentials:'include'/);
 });

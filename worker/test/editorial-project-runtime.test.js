@@ -28,8 +28,8 @@ test('Workers runtime creates editorial project without following Drive redirect
  assert.equal((await send({year:2027,season:'Summer'})).status,409);assert.equal(calls.length,1);
  for(const input of [{},{year:'2027',season:'Winter'},{year:2027,season:'Spring'},null])assert.equal((await send(input)).status,400);
  assert.equal(calls.length,1);
- for(const status of [302,307,403,500]){googleStatus=status;const r=await send({year:2027,season:'Winter'});assert.equal(r.status,502);assert.equal((await r.json()).code,'editorial_drive_error');}
- assert.equal(calls.length,5);assert(calls.every(x=>x.url.startsWith('https://www.googleapis.com/drive/v3/files?')));
+ for(const status of [302,307,401,403,500]){googleStatus=status;const r=await send({year:2027,season:'Winter'});assert.equal(r.status,[401,403].includes(status)?status:502);assert.equal((await r.json()).code,status===401?'drive_authentication_required':status===403?'editorial_drive_permission_or_quota':'editorial_drive_error');}
+ assert.equal(calls.length,6);assert(calls.every(x=>x.url.startsWith('https://www.googleapis.com/drive/v3/files?')));
  const rows=await db.prepare('SELECT id FROM editorial_projects').all();assert.deepEqual(rows.results,[{id:'2027_Summer'}]);
  assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM editorial_versions').first()).n,0);
 });
