@@ -186,3 +186,9 @@ dialog.modal .modal-card{max-height:calc(100dvh - 32px);overflow-y:auto;overscro
 /* Native dialogs otherwise use the browser UI font instead of the app stack. */
 dialog{font-family:inherit}
 .brand-name{font-family:Outfit,"Pretendard Variable",sans-serif}
+
+/* File transfers retain the common glass controls without clipping long names. */
+[data-file-detail] p,[data-file-detail] a{overflow-wrap:anywhere}
+[data-version-form]{min-width:0}
+[data-version-form] progress{width:100%;accent-color:var(--gold);margin:12px 0}
+[data-version-form] button{min-height:44px;margin:4px 6px 4px 0}

@@ -1,16 +1,17 @@
+import {MAX_EDITORIAL_BYTES,editorialFilename,editorialExtension} from '../../assets/js/shared/editorial-file-policy.js';
+export {MAX_EDITORIAL_BYTES} from '../../assets/js/shared/editorial-file-policy.js';
 import {EditorialCheckout,selectedOperator,operatorCookie} from './editorial-checkout.js';
 import {editorialDrive,CHUNK_BYTES} from './editorial-drive.js';
 const bad=(message,status=400,code='invalid_editorial_file')=>Object.assign(new Error(message),{status,code});
 const conflict=()=>bad('편집을 시작한 이후 최신 버전이 변경되었거나 다른 업로드가 진행 중입니다. 최신본을 다시 확인해 주세요.',409,'editorial_conflict');
 const now=()=>new Date().toISOString();
 const digest=async bytes=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(x=>x.toString(16).padStart(2,'0')).join('');
-export const MAX_EDITORIAL_BYTES=1024*1024*1024;
 export function validateEditorialFile(input){
-  const name=String(input?.originalFilename||''),extension=name.split('.').pop().toLowerCase();
-  if(!['af','afpub','afdesign','afphoto'].includes(extension)||name.length>255||/[\x00-\x1f]/.test(name))throw bad('Affinity 원본(.af, .afpub, .afdesign, .afphoto)을 선택해 주세요.');
+  let name;try{name=editorialFilename(input?.originalFilename);}catch(e){throw bad(e.message);}
+  const extension=editorialExtension(name);
   const note=String(input.changeNote||'').trim();
   if(note.length>2000)throw bad('수정 내용은 2,000자까지 입력할 수 있습니다.');
-  if(!Number.isSafeInteger(input.fileSize)||input.fileSize<1||input.fileSize>MAX_EDITORIAL_BYTES)throw bad('파일은 최대 1 GiB까지 업로드할 수 있습니다.');
+  if(!Number.isSafeInteger(input.fileSize)||input.fileSize<1||input.fileSize>MAX_EDITORIAL_BYTES)throw bad('파일은 최대 20 GiB까지 업로드할 수 있습니다.');
   if(!/^[a-f0-9]{64}$/.test(input.contentHash||''))throw bad('파일 확인값이 없습니다. 파일을 다시 선택해 주세요.');
   return {originalFilename:name,extension,changeNote:note,fileSize:input.fileSize,contentHash:input.contentHash};
 }
@@ -33,13 +34,14 @@ export class EditorialFiles {
     const p=await this.project(id);
     // Repeat the partial-index predicate explicitly: SQLite does not infer
     // state!='cancelled' from state='complete'. No additional index is needed.
-    const [latest,historyResult,lock,audit]=await Promise.all([
+    const [latest,historyResult,lock,audit,pending]=await Promise.all([
       this.stmt("SELECT * FROM editorial_versions WHERE project_id=? AND version=? AND state='complete' AND state!='cancelled'",id,p.latest_version).first(),
       this.stmt("SELECT * FROM editorial_versions WHERE project_id=? AND state='complete' AND state!='cancelled' AND version<? ORDER BY version DESC LIMIT 51",id,before).all(),
-      this.checkout.active(id),this.checkout.audit(id)
+      this.checkout.active(id),this.checkout.audit(id),
+      p.pending_id?this.stmt("SELECT original_filename AS originalFilename,file_size AS fileSize,change_note AS changeNote FROM editorial_versions WHERE id=? AND project_id=? AND state='uploading'",p.pending_id,id).first():Promise.resolve(null)
     ]);
     const history=historyResult.results;
-    return {id:p.id,year:p.year,season:p.season,latest:publicVersion(latest),pendingId:p.pending_id,lock,audit,versions:history.slice(0,50).map(publicVersion),nextBefore:history.length>50?history[49].version:null};
+    return {id:p.id,year:p.year,season:p.season,latest:publicVersion(latest),pendingId:p.pending_id,pending,lock,audit,versions:history.slice(0,50).map(publicVersion),nextBefore:history.length>50?history[49].version:null};
   }
   async begin(id,user){return this.checkout.begin(id,await this.checkout.actor(this.role,user));}
   async upload(id,user,input,token){
@@ -52,7 +54,7 @@ export class EditorialFiles {
       return this.prepare(previous,token);
     }
     const p=await this.project(id);if(p.latest_version!==ticket.base_version||p.pending_id)throw conflict();
-    const v={id:crypto.randomUUID(),project_id:id,version:p.latest_version+1,base_version:p.latest_version,edit_session_id:ticket.id,user_id:user,editor_name:ticket.owner_name,change_note:x.changeNote,original_filename:x.originalFilename,normalized_filename:`${id}_v${String(p.latest_version+1).padStart(3,'0')}.${x.extension}`,extension:x.extension,file_size:x.fileSize,drive_file_id:await this.drive.id(token),created_at:now()};
+    const v={id:crypto.randomUUID(),project_id:id,version:p.latest_version+1,base_version:p.latest_version,edit_session_id:ticket.id,user_id:user,editor_name:ticket.owner_name,change_note:x.changeNote,original_filename:x.originalFilename,normalized_filename:`${id}_v${String(p.latest_version+1).padStart(3,'0')}${x.extension?'.'+x.extension:''}`,extension:x.extension,file_size:x.fileSize,drive_file_id:await this.drive.id(token),created_at:now()};
     // D1 batch is transactional. Only a successful compare-and-swap may insert a reservation.
     await this.db.batch([
       this.stmt('UPDATE editorial_projects SET pending_id=? WHERE id=? AND latest_version=? AND pending_id IS NULL AND EXISTS(SELECT 1 FROM editorial_locks WHERE id=? AND ended_at IS NULL)',v.id,id,v.base_version,ticket.id),
@@ -94,8 +96,9 @@ export class EditorialFiles {
       return await this.drive.send(v,token,null,0);
     }
     catch(error){
-      // A completed Drive session may no longer answer status after a lost response.
-      if(!body){try{const f=await this.drive.metadata(v.drive_file_id,token);if(!f.trashed&&Number(f.size)===v.file_size)return {offset:v.file_size,done:true};}catch{}}
+      // A completed Drive session may stop answering even a retried final chunk.
+      // Verify the exact private object before recovering either request kind.
+      try{const f=await this.drive.metadata(v.drive_file_id,token);if(f.id===v.drive_file_id&&!f.trashed&&Number(f.size)===v.file_size&&f.name===v.normalized_filename&&f.parents?.includes(p.folder_id))return {offset:v.file_size,done:true};}catch{}
       throw error;
     }
   }
@@ -106,7 +109,8 @@ export class EditorialFiles {
     if(f.id!==v.drive_file_id||f.trashed||Number(f.size)!==v.file_size||f.name!==v.normalized_filename||!f.parents?.includes(p.folder_id))throw bad('Drive 파일의 업로드 완료를 확인할 수 없습니다.',409);
     const chunks=(await this.stmt('SELECT offset,digest FROM editorial_upload_chunks WHERE upload_id=? ORDER BY offset',id).all()).results;
     if(chunks.length!==Math.ceil(v.file_size/CHUNK_BYTES)||chunks.some((x,i)=>x.offset!==i*CHUNK_BYTES))throw bad('파일 조각 검증이 완료되지 않았습니다.',409);
-    const bytes=Uint8Array.from(chunks.flatMap(x=>x.digest.match(/../g).map(h=>parseInt(h,16))));
+    const bytes=new Uint8Array(chunks.length*32);
+    for(let i=0;i<chunks.length;i++)for(let j=0;j<32;j++)bytes[i*32+j]=parseInt(chunks[i].digest.slice(j*2,j*2+2),16);
     if(await digest(bytes)!==v.content_hash)throw bad('파일 확인값이 일치하지 않습니다. 최신본은 변경되지 않았습니다.',409);
     const event=crypto.randomUUID(),time=now();
     await this.db.batch([
@@ -120,10 +124,24 @@ export class EditorialFiles {
     const notificationStatus=ownEvent?.id===event?await this.checkout.notifySafely(event,this.env):await this.checkout.notificationStatus(v.edit_session_id);
     return {...publicVersion(saved),notificationStatus};
   }
-  async download(project,version,token){
-    const v=await this.stmt("SELECT * FROM editorial_versions WHERE project_id=? AND version=? AND state='complete' AND state!='cancelled'",project,version).first();if(!v)throw bad('버전을 찾을 수 없습니다.',404);
-    const r=await this.drive.download(v.drive_file_id,token);
-    return new Response(r.body,{headers:{'Content-Type':'application/octet-stream','Content-Disposition':`attachment; filename="${v.normalized_filename}"`,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}});
+  async downloadable(project,version){
+    const v=await this.stmt("SELECT * FROM editorial_versions WHERE project_id=? AND version=? AND state='complete' AND state!='cancelled'",project,version).first();if(!v)throw bad('버전을 찾을 수 없습니다.',404);return v;
+  }
+  async downloadInfo(project,version){
+    const v=await this.downloadable(project,version);
+    return {filename:v.original_filename,normalizedFilename:v.normalized_filename,size:v.file_size};
+  }
+  async download(project,version,token,range=null){
+    const v=await this.downloadable(project,version);let start=0,end=v.file_size-1;
+    if(range){const m=/^bytes=(\d+)-(\d*)$/.exec(range);if(!m)throw bad('다운로드 범위가 올바르지 않습니다.',416);start=Number(m[1]);end=m[2]?Number(m[2]):end;if(!Number.isSafeInteger(start)||!Number.isSafeInteger(end)||start<0||start>end||end>=v.file_size)throw bad('다운로드 범위가 올바르지 않습니다.',416);}
+    const r=await this.drive.download(v.drive_file_id,token,range?`bytes=${start}-${end}`:null);
+    if(range&&(r.status!==206||r.headers.get('Content-Range')!==`bytes ${start}-${end}/${v.file_size}`)){await r.body?.cancel();throw bad('Drive 다운로드 범위를 확인할 수 없습니다.',502);}
+    const name=v.original_filename||v.normalized_filename;
+    const fallback=name.replace(/[^a-zA-Z0-9._ -]/g,'_').replace(/["\\]/g,'_')||'download';
+    const encoded=encodeURIComponent(name).replace(/[!'()*]/g,c=>'%'+c.charCodeAt(0).toString(16).toUpperCase());
+    const headers={'Content-Type':'application/octet-stream','Content-Disposition':`attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`,'Content-Length':String(end-start+1),'Accept-Ranges':'bytes','Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'};
+    if(range)headers['Content-Range']=`bytes ${start}-${end}/${v.file_size}`;
+    return new Response(r.body,{status:range?206:200,headers});
   }
 }
 async function smallJson(request){const text=new TextDecoder().decode(await chunk(request,8192));try{return JSON.parse(text);}catch{throw bad('요청 형식이 올바르지 않습니다.');}}
@@ -147,12 +165,12 @@ export async function routeEditorialFiles(request,env,viewer,path){
     if(method==='GET')return out(await repo.list());
     if(method==='POST')return out(await repo.create(await smallJson(request),token));
   }
-  const p=path.match(/^\/api\/editorial-files\/projects\/([\w-]+)(?:\/(checkout|upload|versions\/(\d+)\/download))?$/);
+  const p=path.match(/^\/api\/editorial-files\/projects\/([\w-]+)(?:\/(checkout|upload|versions\/(\d+)\/(download|download-info)))?$/);
   if(p){
     if(!p[2]&&method==='GET'){const before=Number(new URL(request.url).searchParams.get('before')||Number.MAX_SAFE_INTEGER);if(!Number.isSafeInteger(before)||before<1)throw bad('잘못된 기록 위치입니다.');return out(await repo.detail(p[1],before));}
     if(p[2]==='checkout'&&method==='POST')return out(await repo.begin(p[1],viewer.sub));
     if(p[2]==='upload'&&method==='POST')return out(await repo.upload(p[1],viewer.sub,await smallJson(request),token));
-    if(p[3]&&method==='GET')return repo.download(p[1],Number(p[3]),token);
+    if(p[3]&&method==='GET')return p[4]==='download-info'?out(await repo.downloadInfo(p[1],Number(p[3]))):repo.download(p[1],Number(p[3]),token,request.headers.get('Range'));
   }
   const u=path.match(/^\/api\/editorial-files\/uploads\/([\w-]+)\/(status|chunk|finish)$/);
   if(u){

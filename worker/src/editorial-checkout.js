@@ -37,8 +37,8 @@ export class EditorialCheckout {
       this.stmt('INSERT INTO editorial_locks(id,project_id,user_id,owner_role,owner_name,owner_slack_user_id,base_version,started_at) SELECT id,project_id,user_id,?,?,?,base_version,created_at FROM editorial_edit_sessions WHERE id=?',actor.role,actor.name,'',id)
     ]);}catch(error){if(await this.active(project))throw fail('이미 편집 중인 작업자가 있습니다.');throw error;}
     const lock=await this.active(project);if(!lock||lock.id!==id)throw fail('편집 시작 상태가 변경되었습니다. 새로고침해 주세요.');
-    const v=await this.stmt("SELECT normalized_filename FROM editorial_versions WHERE project_id=? AND version=? AND state='complete'",project,lock.base_version).first();
-    return {lock,filename:v?.normalized_filename,downloadUrl:v?`/api/editorial-files/projects/${project}/versions/${lock.base_version}/download`:null};
+    const v=await this.stmt("SELECT normalized_filename,original_filename,file_size FROM editorial_versions WHERE project_id=? AND version=? AND state='complete'",project,lock.base_version).first();
+    return {lock,filename:v?.original_filename||v?.normalized_filename,fileSize:v?.file_size,downloadUrl:v?`/api/editorial-files/projects/${project}/versions/${lock.base_version}/download`:null};
   }
   async audit(project){return (await this.stmt('SELECT id,lock_id,action,actor_role,actor_name,owner_role,owner_name,base_version,created_at,notification_status FROM editorial_lock_audit WHERE project_id=? ORDER BY created_at DESC LIMIT 30',project).all()).results;}
   async close(id,actor,force,confirmation,env,send=sendEditorialSlack){

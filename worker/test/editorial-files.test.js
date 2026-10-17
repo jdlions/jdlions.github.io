@@ -1,8 +1,9 @@
+import {createHash} from 'node:crypto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {readFileSync,readdirSync} from 'node:fs';
-import {EditorialFiles,validateEditorialFile,routeEditorialFiles} from '../src/editorial-files.js';
+import {EditorialFiles,validateEditorialFile,routeEditorialFiles,MAX_EDITORIAL_BYTES} from '../src/editorial-files.js';
 import {editorialDrive,CHUNK_BYTES} from '../src/editorial-drive.js';
 import {fileFingerprint} from '../../assets/js/admin/editorial-files.js';
 import worker from '../src/index.js';
@@ -16,7 +17,7 @@ function fixture(){
   for(const name of readdirSync(new URL('../migrations/',import.meta.url)).filter(x=>x.endsWith('.sql')).sort())sql.exec(readFileSync(new URL('../migrations/'+name,import.meta.url),'utf8'));
   const db={prepare(query){let args=[];const s={bind(...values){args=values;return s;},first:async()=>sql.prepare(query).get(...args),all:async()=>({results:sql.prepare(query).all(...args)}),run:async()=>sql.prepare(query).run(...args),exec:()=>sql.prepare(query).run(...args)};return s;},async batch(stmts){sql.exec('BEGIN');try{const result=stmts.map(s=>s.exec());sql.exec('COMMIT');return result;}catch(e){sql.exec('ROLLBACK');throw e;}}};
   const files=new Map();let ids=0;
-  const drive={async id(){return 'file-'+(++ids);},async folder(){return 'private-folder';},async start(v,parent){files.set(v.drive_file_id,{id:v.drive_file_id,name:v.normalized_filename,parents:[parent],data:new Uint8Array(0)});return 'https://www.googleapis.com/upload/drive/test/'+v.drive_file_id;},async send(v,token,body,offset){const f=files.get(v.drive_file_id);if(body){assert.equal(offset,f.data.length);const data=new Uint8Array(offset+body.byteLength);data.set(f.data);data.set(body,offset);f.data=data;}return {offset:f.data.length,done:f.data.length===v.file_size};},async metadata(id){const f=files.get(id);return {...f,size:f.data.length,md5Checksum:'drive-md5'};},async download(id){return new Response(files.get(id).data);}};
+  const drive={async id(){return 'file-'+(++ids);},async folder(){return 'private-folder';},async start(v,parent){files.set(v.drive_file_id,{id:v.drive_file_id,name:v.normalized_filename,parents:[parent],data:new Uint8Array(0)});return 'https://www.googleapis.com/upload/drive/test/'+v.drive_file_id;},async send(v,token,body,offset){const f=files.get(v.drive_file_id);if(body){assert.equal(offset,f.data.length);const data=new Uint8Array(offset+body.byteLength);data.set(f.data);data.set(body,offset);f.data=data;}return {offset:f.data.length,done:f.data.length===v.file_size};},async metadata(id){const f=files.get(id);return {...f,size:f.data.length,md5Checksum:'drive-md5'};},async download(id,token,range){const data=files.get(id).data;if(!range)return new Response(data);const m=/^bytes=(\d+)-(\d+)$/.exec(range),a=Number(m[1]),b=Number(m[2]);return new Response(data.slice(a,b+1),{status:206,headers:{'Content-Range':`bytes ${a}-${b}/${data.length}`}});}};
   sql.exec("UPDATE editorial_editors SET name=CASE role WHEN 'chief' THEN '유현승' ELSE '김우준' END");
   const repo=new EditorialFiles(db,drive,'chief');
   return {sql,db,drive,repo,files,async project(){await repo.create({year:2026,season:'Winter'},'token');return '2026_Winter';},async upload(project,overrides={},ticket){ticket||=(await repo.begin(project,'shared-editor')).lock.id;const start=await repo.upload(project,'shared-editor',input(ticket,overrides),'token');if(!start.done){await repo.progress(start.id,'shared-editor','token',bytes,0);await repo.finish(start.id,'shared-editor','token');}return start;}};
@@ -32,8 +33,8 @@ test('v001/v002 append, normalize extensions, retain original metadata and serve
   assert.deepEqual(f.sql.prepare('PRAGMA foreign_key_check').all(),[]);
 });
 test('format, size, filename and fingerprint validation',()=>{
-  for(const overrides of [{originalFilename:'x.pdf'},{originalFilename:'x.af.exe'},{fileSize:0},{fileSize:1024**3+1},{fileSize:1.5},{contentHash:''},{changeNote:'x'.repeat(2001)}])assert.throws(()=>validateEditorialFile(input('ticket',overrides)),{status:400});
-  for(const extension of ['af','afpub','afdesign','afphoto','AF'])assert.equal(validateEditorialFile(input('t',{originalFilename:'random.'+extension})).extension,extension.toLowerCase());
+  for(const overrides of [{originalFilename:'../x.zip'},{originalFilename:'x\\file.indd'},{originalFilename:'x\nfile.zip'},{originalFilename:'NUL.zip'},{originalFilename:'x\u202ezip.exe'},{fileSize:0},{fileSize:MAX_EDITORIAL_BYTES+1},{fileSize:1.5},{contentHash:''},{changeNote:'x'.repeat(2001)}])assert.throws(()=>validateEditorialFile(input('ticket',overrides)),{status:400});
+  for(const extension of ['af','afpub','afdesign','afphoto','AF','indd','idml','zip','psd','ai','pdf','jpg','exe'])assert.equal(validateEditorialFile(input('t',{originalFilename:'random.'+extension})).extension,extension.toLowerCase());
 });
 test('simultaneous checkout admits one role; duplicate finish creates one version and audit',async t=>{
   const f=fixture();t.after(()=>f.sql.close());const p=await f.project();
@@ -80,7 +81,7 @@ test('Worker routes retain auth/admin/Origin/CSRF checks and private metadata',a
   assert.equal((await send('projects','GET',{Cookie:''})).status,401);
   for(const extra of [{Origin:'https://evil.example'},{'X-Editorial-CSRF':''}])assert.equal((await send('projects/2026_Winter/checkout','POST',extra)).status,403);
   const good=await send('projects/2026_Winter');assert.equal(good.status,200);assert.equal(good.headers.get('Cache-Control'),'private, no-store');
-  student=true;const studentCookie=await cookie('files-student');for(const p of ['settings','editors','projects','projects/2026_Winter','projects/2026_Winter/versions/1/download'])assert.equal((await send(p,'GET',{Cookie:studentCookie})).status,403);
+  student=true;const studentCookie=await cookie('files-student');for(const p of ['settings','editors','projects','projects/2026_Winter','projects/2026_Winter/versions/1/download','projects/2026_Winter/versions/1/download-info'])assert.equal((await send(p,'GET',{Cookie:studentCookie})).status,403);
 });
 test('Drive adapter creates private immutable files and proxies bounded resumable chunks',async t=>{
   const calls=[];t.mock.method(globalThis,'fetch',async(url,init)=>{calls.push({url:String(url),init});if(String(url).includes('generateIds'))return Response.json({ids:['id-1']});if(String(url).includes('uploadType'))return new Response(null,{headers:{Location:'https://www.googleapis.com/upload/drive/v3/files?upload_id=private'}});if(init.method==='PUT')return new Response(null,{status:308,headers:{Range:'bytes=0-3'}});return Response.json({id:'folder'});});
@@ -101,7 +102,7 @@ test('Worker HTTP upload/download routes persist real D1 metadata, bound request
   assert.equal((await send('uploads/'+start.id+'/chunk','PUT',new Uint8Array(CHUNK_BYTES+1))).status,413);
   assert.equal((await send('uploads/'+start.id+'/chunk','PUT',bytes,{'X-Upload-Offset':'0'})).status,200);
   assert.equal((await send('uploads/'+start.id+'/finish')).status,200);
-  const response=await send('projects/2026_Winter/versions/1/download','GET');assert.equal(response.status,200);assert.deepEqual(new Uint8Array(await response.arrayBuffer()),bytes);assert.match(response.headers.get('Content-Disposition'),/2026_Winter_v001.afpub/);
+  const response=await send('projects/2026_Winter/versions/1/download','GET');assert.equal(response.status,200);assert.deepEqual(new Uint8Array(await response.arrayBuffer()),bytes);assert.match(response.headers.get('Content-Disposition'),new RegExp(encodeURIComponent('진짜최종.afpub')));
 });
 test('D1 finalize failure rolls back latest pointer and can be retried without a second Drive file',async t=>{
   const f=fixture();t.after(()=>f.sql.close());const p=await f.project(),ticket=await f.repo.begin(p,'shared-editor'),s=await f.repo.upload(p,'shared-editor',input(ticket.lock.id),'token');await f.repo.progress(s.id,'shared-editor','token',bytes,0);
@@ -240,4 +241,63 @@ test('editorial detail overlaps independent reads while keeping the project prer
   const start=performance.now(),d=await f.repo.detail(p),ms=performance.now()-start;
   assert.equal(d.latest.version,1);assert.equal(count,5);assert.equal(peak,4);
   console.log('editorial read waves',JSON.stringify({queries:count,beforeWaves:5,afterWaves:2,injectedLatencyMs:20,afterMs:Math.round(ms)}));
+});
+
+
+test('all file formats append versions and original names survive ranged private downloads',async t=>{
+ const f=fixture();t.after(()=>f.sql.close());const p=await f.project();let version=0;
+ for(const name of ['기존.afpub','신문.indd','교환.idml','패키지.zip','원고.psd','표지.ai','사진.png','README']){
+  await f.upload(p,{originalFilename:name});const v=(await f.repo.detail(p)).latest;
+  assert.equal(v.version,++version);assert.equal(v.original_filename,name);
+  const info=await f.repo.downloadInfo(p,version);assert.equal(info.filename,name);
+  const r=await f.repo.download(p,version,'token','bytes=1-2');assert.equal(r.status,206);assert.equal(r.headers.get('Content-Range'),'bytes 1-2/4');assert.equal(r.headers.get('Content-Length'),'2');assert.match(r.headers.get('Content-Disposition'),new RegExp(encodeURIComponent(name)));assert.deepEqual(new Uint8Array(await r.arrayBuffer()),bytes.slice(1,3));
+ }
+ assert.equal(f.files.size,8);assert.equal((await f.repo.detail(p)).versions.length,8);
+ for(const range of ['bytes=-1','bytes=0-4','bytes=3-1','bytes=0-1,2-3','bytes=9007199254740992-'])await assert.rejects(f.repo.download(p,1,'token',range),{status:416});
+ f.drive.download=async()=>new Response(bytes);await assert.rejects(f.repo.download(p,1,'token','bytes=0-1'),{status:502});
+});
+
+test('application ceiling and offsets are safe integers beyond 32 bits without schema changes',async t=>{
+ assert.equal(validateEditorialFile(input('t',{fileSize:20*1024**3})).fileSize,20*1024**3);
+ assert.throws(()=>validateEditorialFile(input('t',{fileSize:20*1024**3+1})),{status:400});
+ const f=fixture();t.after(()=>f.sql.close());const p=await f.project(),lock=(await f.repo.begin(p,'shared-editor')).lock;
+ const s=await f.repo.upload(p,'shared-editor',input(lock.id,{fileSize:5*1024**3,originalFilename:'package.zip'}),'token');
+ f.drive.send=async()=>({offset:4*1024**3,done:false});assert.equal((await f.repo.progress(s.id,'shared-editor','token')).offset,4*1024**3);
+ assert.equal(f.sql.prepare('SELECT file_size FROM editorial_versions WHERE id=?').get(s.id).file_size,5*1024**3);
+ await assert.rejects(f.repo.finish(s.id,'shared-editor','token'),{status:409});assert.equal((await f.repo.detail(p)).latest,null);
+});
+
+test('1 GiB plus 17 bytes traverses real chunk hashing, D1 finalize and streaming download with matching SHA256',async t=>{
+ const f=fixture();t.after(()=>f.sql.close());const project=await f.project(),size=1024**3+17;
+ let received=0,maxBody=0;const uploadHash=createHash('sha256'),md5=createHash('md5');let completedHash;
+ const block=(start,end)=>new Uint8Array(end-start).fill(Math.floor(start/CHUNK_BYTES)%251);
+ const file={name:'InDesign package.zip',size,slice(start,end){assert(end-start<=CHUNK_BYTES);return new Blob([block(start,Math.min(end,size))]);},arrayBuffer(){throw new Error('whole-file buffering is forbidden');}};
+ const hash=await fileFingerprint(file),lock=(await f.repo.begin(project,'shared-editor')).lock;
+ f.drive.start=async()=> 'https://www.googleapis.com/upload/drive/test/large-private';
+ f.drive.send=async(v,token,body,offset)=>{if(body){assert.equal(offset,received);maxBody=Math.max(maxBody,body.byteLength);assert(body.byteLength<=CHUNK_BYTES);uploadHash.update(body);md5.update(body);received+=body.byteLength;}return {offset:received,done:received===size};};
+ f.drive.metadata=async id=>{const row=f.sql.prepare('SELECT * FROM editorial_versions WHERE drive_file_id=?').get(id);return {id,name:row.normalized_filename,size:received,parents:['private-folder'],md5Checksum:received===size?md5.copy().digest('hex'):null};};
+ const start=await f.repo.upload(project,'shared-editor',input(lock.id,{originalFilename:file.name,fileSize:size,contentHash:hash}),'token');
+ const pending=(await f.repo.detail(project)).pending;assert.deepEqual({...pending},{originalFilename:file.name,fileSize:size,changeNote:'School 수정'});assert.doesNotMatch(JSON.stringify(pending),/upload_url|accessToken|private-session/);
+ for(let offset=0;offset<size;offset+=CHUNK_BYTES)await f.repo.progress(start.id,'shared-editor','token',block(offset,Math.min(offset+CHUNK_BYTES,size)),offset);
+ const saved=await f.repo.finish(start.id,'shared-editor','token');assert.equal(saved.file_size,size);assert.equal(saved.state,'complete');assert.equal(saved.version,1);assert.equal(saved.content_hash,hash);completedHash=uploadHash.digest('hex');
+ f.drive.download=async()=>{let offset=0;return new Response(new ReadableStream({pull(controller){if(offset===size){controller.close();return;}const end=Math.min(offset+CHUNK_BYTES,size);controller.enqueue(block(offset,end));offset=end;}}));};
+ const response=await f.repo.download(project,1,'token'),reader=response.body.getReader(),downloadHash=createHash('sha256');let count=0;
+ for(;;){const part=await reader.read();if(part.done)break;assert(part.value.byteLength<=CHUNK_BYTES);count+=part.value.byteLength;downloadHash.update(part.value);}
+ assert.equal(count,size);assert.equal(downloadHash.digest('hex'),completedHash);assert.equal(maxBody,CHUNK_BYTES);assert.equal((await f.repo.detail(project)).latest.version,1);
+ console.log('isolated large transfer',JSON.stringify({bytes:size,chunks:Math.ceil(size/CHUNK_BYTES),maxBody,sha256Matches:true,realGoogleDrive:false}));
+});
+
+
+test('Drive upload expiry, authorization and quota errors are explicit without leaking session URLs',async t=>{
+ const v={upload_url:'https://www.googleapis.com/upload/drive/private-session',file_size:4};let status=410,reason='';
+ t.mock.method(globalThis,'fetch',async()=>Response.json({error:{errors:[{reason}]}},{status}));
+ for(const [http,code,expected] of [[410,'editorial_upload_expired',409],[401,'drive_authentication_required',401],[403,'editorial_drive_permission_or_quota',403],[429,'editorial_drive_rate_limit',429]]){status=http;await assert.rejects(editorialDrive.send(v,'secret',null,0),error=>{assert.equal(error.code,code);assert.equal(error.status,expected);assert.doesNotMatch(error.message,/private-session|secret/);return true;});}
+ status=403;reason='rateLimitExceeded';await assert.rejects(editorialDrive.send(v,'secret',null,0),{status:429});
+});
+
+
+test('lost final chunk reply recovers verified Drive object without cancelling or duplicating the version',async t=>{
+ const f=fixture();t.after(()=>f.sql.close());const p=await f.project(),lock=(await f.repo.begin(p,'shared-editor')).lock,start=await f.repo.upload(p,'shared-editor',input(lock.id),'token');
+ await f.repo.progress(start.id,'shared-editor','token',bytes,0);f.drive.send=async()=>{throw Object.assign(new Error('session no longer responds'),{status:409,code:'editorial_upload_expired'});};
+ assert.deepEqual(await f.repo.progress(start.id,'shared-editor','token',bytes,0),{offset:4,done:true});await f.repo.finish(start.id,'shared-editor','token');assert.equal((await f.repo.detail(p)).latest.version,1);assert.equal(f.files.size,1);
 });
