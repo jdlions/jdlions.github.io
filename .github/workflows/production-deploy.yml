@@ -11,27 +11,14 @@ concurrency:
 jobs:
   deploy:
     if: github.repository == 'jdlions/jdlions.github.io' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: worker/package-lock.json
       - name: Existing tests and build
-        run: |
-          npm ci --prefix worker
-          npm run check --prefix worker
-          npm test --prefix pridedesk
-          node --test scripts/test/*.test.mjs
-          python3 scripts/validate.py
-          cd worker
-          npx playwright install --with-deps chromium
-          npm run test:browser
+        uses: ./.github/actions/pridedesk-validation
       - name: Build Worker static assets
         run: npm run build:static --prefix worker
       - name: Migrations, Worker, Vercel and production smoke

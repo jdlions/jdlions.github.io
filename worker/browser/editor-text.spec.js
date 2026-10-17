@@ -2,6 +2,19 @@ import {test,expect} from '@playwright/test';
 import {sanitizeHtml} from '../src/security.js';
 import {pageResponse,overviewResponse} from './page-fixture.js';
 
+// All data comes from this spec's isolated fixtures. Preserve rendering state
+// on failure, rather than depending only on assertions reached before a failure.
+test.afterEach(async({page,browser},info)=>{
+ if(info.status===info.expectedStatus)return;
+ const state=await page.evaluate(()=>({
+  scrollY,viewport:{width:innerWidth,height:innerHeight},scrollHeight:document.scrollingElement?.scrollHeight,
+  fonts:document.fonts.status,themeLoaded:Boolean(document.querySelector('[data-liquid-glass-theme]')?.sheet),
+  animations:document.getAnimations().map(a=>({state:a.playState,property:a.transitionProperty,target:a.effect?.target?.className})),
+  rectangles:Object.fromEntries(['.composer-top','[data-editor]','[data-count]','.editor-footer'].map(selector=>[selector,document.querySelector(selector)?.getBoundingClientRect().toJSON()]))
+ })).catch(error=>({captureError:error.message}));
+ await info.attach('rendering-state.json',{body:JSON.stringify({browser:browser.version(),...state}),contentType:'application/json'});
+});
+
 for(const type of ['school','feature'])test('admin counter initial/live/paste/save/reload '+type,async({page})=>{
  const state=await setup(page,{role:'admin',type,status:'reviewing',html:'<p>원문</p>'});await expectCount(page,2);
  await page.clock.install();const before=state.calls.length;await page.locator('[data-editor]').fill('A  한글');await expectCount(page,5);expect(state.calls.length).toBe(before);
@@ -19,7 +32,8 @@ for(const role of ['student','admin'])for(const width of [390,820,1440])test(rol
  if(await page.locator('[data-menu]').isVisible())await page.locator('[data-menu]').click();
  const credit=page.locator('.app-sidebar .sidebar-credit');await expect(credit).toContainText("© 2026 The Lion's Pride");await expect(credit.locator('strong')).toHaveText('35기 Hyunseung Yu');
  await expect(credit.locator('a')).toHaveAttribute('href','mailto:dylanyu@outlook.kr');await expect(credit.locator('a')).toContainText('Developer Contact');await expect(credit.locator('a')).toContainText('dylanyu@outlook.kr');
- await credit.locator('a').scrollIntoViewIfNeeded();const side=await page.locator('.app-sidebar').boundingBox(),foot=await credit.boundingBox(),nav=await page.locator('.side-nav').boundingBox(),logout=await page.locator('[data-logout]').boundingBox();
+ await editorLayout(page);await credit.locator('a').scrollIntoViewIfNeeded();
+ const {side,foot,nav,logout}=await page.evaluate(()=>Object.fromEntries(Object.entries({side:'.app-sidebar',foot:'.app-sidebar .sidebar-credit',nav:'.side-nav',logout:'[data-logout]'}).map(([key,selector])=>[key,document.querySelector(selector).getBoundingClientRect().toJSON()])));
  expect(foot.y).toBeGreaterThanOrEqual(nav.y+nav.height);expect(foot.y).toBeGreaterThanOrEqual(logout.y+logout.height);expect(foot.y+foot.height).toBeLessThanOrEqual(side.y+side.height);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  await page.screenshot({path:info.outputPath('sidebar-'+role+'-'+width+'.png')});
  if(width===390)await page.locator('[data-menu]').click();
@@ -132,10 +146,16 @@ test('admin source/editor safely render legacy styles and plain paste preserves 
 async function editorLayout(page){
  await page.waitForFunction(()=>Boolean(document.querySelector('link[data-liquid-glass-theme]')?.sheet));
  await page.evaluate(()=>document.fonts.ready);
+ // Loading a stylesheet also starts CSS transitions (not covered by fonts.ready).
+ // Wait for finite transitions naturally; never finish/cancel product animations.
+ await page.waitForFunction(()=>{
+  document.querySelector('[data-editor]').getBoundingClientRect();
+  return !document.getAnimations().some(a=>a.playState!=='finished'&&a.playState!=='idle'&&a.effect?.getComputedTiming().endTime!==Infinity);
+ });
  return page.evaluate(()=>{
   const editor=document.querySelector('[data-editor]'),counter=document.querySelector('[data-count]'),footer=counter.closest('.editor-footer');
   const e=editor.getBoundingClientRect(),c=counter.getBoundingClientRect(),f=footer.getBoundingClientRect(),toolbar=editor.previousElementSibling.getBoundingClientRect();
-  return {editorTop:e.top,editorBottom:e.bottom,counterTop:c.top,counterBottom:c.bottom,counterLeft:c.left,counterRight:c.right,footerTop:f.top,footerBottom:f.bottom,footerLeft:f.left,footerRight:f.right,toolbarBottom:toolbar.bottom,overflow:document.documentElement.scrollWidth>innerWidth,scrollY,themeLoaded:Boolean(document.querySelector('[data-liquid-glass-theme]').sheet),fonts:document.fonts.status};
+  return {editorTop:e.top,editorBottom:e.bottom,counterTop:c.top,counterBottom:c.bottom,counterLeft:c.left,counterRight:c.right,footerTop:f.top,footerBottom:f.bottom,footerLeft:f.left,footerRight:f.right,toolbarBottom:toolbar.bottom,overflow:document.documentElement.scrollWidth>innerWidth,scrollY,scrollHeight:document.scrollingElement.scrollHeight,viewportHeight:innerHeight,themeLoaded:Boolean(document.querySelector('[data-liquid-glass-theme]').sheet),fonts:document.fonts.status};
  });
 }
 function assertEditorLayout(layout){
@@ -163,17 +183,21 @@ test('counter layout waits for delayed theme/fonts and stays valid after scroll'
  try{
   const starting=setup(page);await expect(page.locator('[data-editor]')).toBeVisible();await page.locator('[data-editor]').fill('한글  English');await expectCount(page,11);
   expect(await page.locator('[data-liquid-glass-theme]').evaluate(el=>Boolean(el.sheet))).toBe(false);
-  const checking=editorLayout(page);releaseTheme();releaseFont();await starting;const ready=await checking;assertEditorLayout(ready);
+  const checking=editorLayout(page);releaseTheme();releaseFont();await starting;assertEditorLayout(await checking);
+  // Input queued a real autosave; its status text can also change toolbar wrapping.
+  await expect(page.locator('[data-save-state]')).toContainText('저장됨');
+  const ready=await editorLayout(page);assertEditorLayout(ready);
+  expect(ready.scrollHeight-ready.viewportHeight).toBeGreaterThanOrEqual(52);
   // Deliberately mix scroll origins inside one JS task: independent awaited
   // reads would also allow unrelated subpixel reflow, making this reproduction
   // race with itself. The actual layout guard below still samples one viewport.
-  const {staleEditor,staleCounter}=await page.evaluate(()=>{
+  const {staleEditor,staleCounter,immediateScroll}=await page.evaluate(()=>{
    scrollTo(0,0);const e=document.querySelector('[data-editor]').getBoundingClientRect();
    scrollBy(0,52);const c=document.querySelector('[data-count]').getBoundingClientRect();
-   return {staleEditor:{y:e.y,height:e.height},staleCounter:{y:c.y}};
+   return {staleEditor:{y:e.y,height:e.height},staleCounter:{y:c.y},immediateScroll:scrollY};
   });
   const current=await editorLayout(page);assertEditorLayout(current);
-  expect(current.scrollY).toBe(52);expect(current.counterTop-current.editorBottom).toBe(13);
+  expect(immediateScroll).toBe(52);expect(current.scrollY).toBe(52);expect(current.counterTop-current.editorBottom).toBe(13);
   // Reproduce CI's -39px false overlap while same-frame geometry is +13px.
   expect(staleCounter.y-staleEditor.y-staleEditor.height).toBe(-39);
   await info.attach('scroll-race.json',{body:JSON.stringify({staleEditor,staleCounter,current}),contentType:'application/json'});
@@ -181,4 +205,18 @@ test('counter layout waits for delayed theme/fonts and stays valid after scroll'
   await page.locator('[data-count]').evaluate(el=>el.style.transform='translateY(-40px)');
   const overlapping=await editorLayout(page);expect(overlapping.counterTop).toBeLessThan(overlapping.editorBottom);expect(()=>assertEditorLayout(overlapping)).toThrow();
  }finally{releaseTheme();releaseFont();}
+});
+
+test('layout readiness waits for a held finite transition without disabling animations',async({page})=>{
+ await page.setViewportSize({width:390,height:900});await setup(page);await editorLayout(page);
+ await page.evaluate(()=>{
+  const header=document.querySelector('.composer-top');
+  window.layoutTransition=header.animate([{paddingBottom:'0px'},{paddingBottom:'60px'}],{duration:100,fill:'forwards'});
+  window.layoutTransition.pause();
+  const animations=document.getAnimations.bind(document);window.layoutChecks=0;
+  document.getAnimations=()=>{window.layoutChecks++;return animations();};
+ });
+ let measured=false;const reading=editorLayout(page).then(value=>{measured=true;return value;});
+ await page.waitForFunction(()=>window.layoutChecks>0);expect(measured).toBe(false);
+ await page.evaluate(()=>window.layoutTransition.play());assertEditorLayout(await reading);
 });

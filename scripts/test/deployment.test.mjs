@@ -107,3 +107,21 @@ test('obsolete main release aborts before ledger/migration/Worker/Vercel operati
   const calls=[],a=createProductionAdapter(deploymentConfig(env),{environment:env,command:async()=>assert.fail('no commands'),request:async url=>{calls.push(url);return Response.json({object:{sha:'b'.repeat(40)}});}});
   await assert.rejects(deployProduction(a,{commit}),/newer_main_release_required/);assert.equal(calls.length,1);
 });
+
+
+test('PR and production share the same fail-closed validation and retain browser evidence',async()=>{
+ const load=path=>readFile(new URL('../../'+path,import.meta.url),'utf8');
+ const pr=await load('.github/workflows/pridedesk-check.yml'),production=await load('.github/workflows/production-deploy.yml'),action=await load('.github/actions/pridedesk-validation/action.yml'),config=await load('worker/playwright.config.js');
+ for(const workflow of [pr,production]){
+  assert.match(workflow,/runs-on: ubuntu-24\.04/);
+  assert.match(workflow,/uses: \.\/\.github\/actions\/pridedesk-validation/);
+  assert.doesNotMatch(workflow,/continue-on-error|npm run test:browser|npm ci/);
+ }
+ assert.match(pr,/\.github\/actions\/pridedesk-validation\/\*\*/);
+ for(const command of ['npm ci --prefix worker','npm run check --prefix worker','npm test --prefix pridedesk','node --test scripts/test/*.test.mjs','npx playwright install --with-deps chromium','npm run test:browser --prefix worker','python3 scripts/validate.py'])assert.equal(action.split(command).length-1,1,command);
+ assert.match(action,/node-version: 24/);assert.match(action,/PLAYWRIGHT_CHANNEL: chromium/);
+ assert.match(action,/if: failure\(\)/);assert.match(action,/path: worker\/test-results\//);
+ assert.doesNotMatch(action,/continue-on-error|printenv|secrets\./);
+ assert.match(config,/retries:0/);assert.match(config,/trace:'retain-on-failure'/);assert.match(config,/screenshot:'only-on-failure'/);
+ assert(production.indexOf('uses: ./.github/actions/pridedesk-validation')<production.indexOf('run: node scripts/production-deploy.mjs'));
+});

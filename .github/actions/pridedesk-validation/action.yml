@@ -1,0 +1,41 @@
+name: PrideDesk validation
+description: The identical read-only validation gate for pull requests and production
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 24
+        cache: npm
+        cache-dependency-path: worker/package-lock.json
+    - run: npm ci --prefix worker
+      shell: bash
+    - name: Record test environment
+      shell: bash
+      run: |
+        node -e "const os=require('node:os'); console.log(JSON.stringify({node:process.version,platform:os.platform(),release:os.release(),CI:process.env.CI,channel:'chromium'}))"
+        cd worker
+        npx playwright --version
+    - run: npm run check --prefix worker
+      shell: bash
+    - run: npm test --prefix pridedesk
+      shell: bash
+    - run: node --test scripts/test/*.test.mjs
+      shell: bash
+    - run: npx playwright install --with-deps chromium
+      working-directory: worker
+      shell: bash
+    - run: npm run test:browser --prefix worker
+      shell: bash
+      env:
+        PLAYWRIGHT_CHANNEL: chromium
+    - run: python3 scripts/validate.py
+      shell: bash
+    - name: Retain browser failure evidence
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: browser-failure-${{ github.run_id }}-${{ github.run_attempt }}
+        path: worker/test-results/
+        if-no-files-found: ignore
+        retention-days: 7
