@@ -58,7 +58,7 @@ export class ProductionEditorialService {
         await this.articlePage();
       }else if(name==='assignments'){const data=await this.request('/api/assignments');this.state.campaigns=data.campaigns||[];this.state.assignments=data.assignments||[];}
       else if(name==='photos')this.state.photos=(await this.request('/api/photos')).map(normalizePhoto);
-      else if(name==='students'&&this.session.role==='admin')this.state.students=(await this.request('/api/classroom/students')).students||[];
+      else if(name==='students'&&this.session.role==='admin')this.state.students=(await this.request('/api/members/roster')).students||[];
       else if(name!=='students')throw new Error('Unknown resource: '+name);
       state.loaded=true;
     })().catch(error=>{state.error=error;throw error;}).finally(()=>state.promise=null);

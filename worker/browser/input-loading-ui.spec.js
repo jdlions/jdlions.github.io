@@ -8,7 +8,7 @@ async function setup(page,role='admin',holdAssignments=false){
  await page.route('**/api/**',async route=>{
   const url=new URL(route.request().url()),p=url.pathname;
   if(holds.has(p)){pending.push({route,url});return;}
-  const data=p==='/api/session'?{authenticated:true,user:{role,studentId:'s',name:'Tester'}}:p==='/api/assignments'?{campaigns:[],assignments:[]}:p==='/api/classroom/students'?{students:[]}:[];
+  const data=p==='/api/session'?{authenticated:true,user:{role,studentId:'s',name:'Tester'}}:p==='/api/assignments'?{campaigns:[],assignments:[]}:p==='/api/members/roster'?{students:[]}:[];
   await route.fulfill({json:data});
  });
  await page.goto('/'+role+'/'+(role==='admin'?'#view=articles':''));await expect(page.locator('[data-list-message] .loading-spinner')).toBeVisible();
@@ -46,7 +46,7 @@ test('assignment/photo/roster loading stays local and student filters share the 
  const s=await setup(page);await s.reply();await expect(page.locator('[data-open]')).toBeVisible();s.holds.add('/api/assignments');
  await page.locator('[data-admin-view=assignments]').click();await expect(page.locator('[data-view=assignments] .loading-spinner')).toBeVisible();await s.reply({campaigns:[],assignments:[]});await expect(page.locator('.loading-spinner')).toHaveCount(0);
  const input=page.locator('[data-assignment-student]');await expect(input).toHaveAttribute('aria-label','학생 이름 또는 ID');expect(await input.evaluate(e=>getComputedStyle(e).backgroundImage)).toBe(await page.locator('.assignment-toolbar .custom-select__trigger').first().evaluate(e=>getComputedStyle(e).backgroundImage));
- s.holds.add('/api/classroom/students');await page.locator('[data-new-assignment]').click();await expect(page.locator('.loading-state')).toContainText('학생 명단');await s.reply({students:[]});await expect(page.locator('.loading-spinner')).toHaveCount(0);
+ s.holds.add('/api/members/roster');await page.locator('[data-new-assignment]').click();await expect(page.locator('.loading-state')).toContainText('학생 명단');await s.reply({students:[]});await expect(page.locator('.loading-spinner')).toHaveCount(0);
  s.holds.add('/api/admin/photo-students');await page.locator('[data-admin-view=photos]').click();await expect(page.locator('[data-view=photos] .loading-spinner')).toBeVisible();await page.locator('[data-admin-view=articles]').click();await expect(page.locator('[data-open]')).toBeVisible();await s.reply([]);await expect(page.locator('[data-open]')).toBeVisible();await expect(page.locator('.loading-spinner')).toHaveCount(0);
 });
 test('student article and assignment loading are independent',async({page})=>{

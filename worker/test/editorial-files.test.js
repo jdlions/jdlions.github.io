@@ -1,3 +1,4 @@
+import {memberToken,registerFixture} from './member-fixture.js';
 import {createHash} from 'node:crypto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -75,7 +76,7 @@ test('Worker routes retain auth/admin/Origin/CSRF checks and private metadata',a
   const f=fixture();t.after(()=>f.sql.close());await f.project();let student=false;
   t.mock.method(globalThis,'fetch',async url=>String(url).endsWith('/userProfiles/me')?Response.json({id:student?'s':'a'}):String(url).includes('/teachers/')&&student?new Response('',{status:404}):Response.json({userId:student?'s':'a'}));
   const env={DB:f.db,SESSION_SECRET:'editorial-files-test-secret',NEWSPAPER_CLASSROOM_ID:'files-course'};
-  const cookie=async sub=>`${SESSION_COOKIE}=${await seal({sub,courseId:env.NEWSPAPER_CLASSROOM_ID,accessToken:'test',exp:Date.now()+60000},env.SESSION_SECRET)}`;
+  const cookie=async sub=>`${SESSION_COOKIE}=${await memberToken(env,{sub,courseId:env.NEWSPAPER_CLASSROOM_ID,accessToken:'test',exp:Date.now()+60000},student?'student':'admin')}`;
   const headers={Cookie:await cookie('files-admin'),Origin:'https://worker.example','X-Editorial-CSRF':'1'};
   const send=(path,method='GET',extra={})=>worker.fetch(new Request('https://worker.example/api/editorial-files/'+path,{method,headers:{...headers,...extra}}),env);
   assert.equal((await send('projects','GET',{Cookie:''})).status,401);
@@ -92,7 +93,7 @@ test('Worker HTTP upload/download routes persist real D1 metadata, bound request
   const f=fixture();t.after(()=>f.sql.close());await f.project();for(const name of Object.keys(f.drive))t.mock.method(editorialDrive,name,f.drive[name]);
   t.mock.method(globalThis,'fetch',async()=>Response.json({id:'admin',userId:'admin'}));
   const env={DB:f.db,SESSION_SECRET:'http-files-secret',NEWSPAPER_CLASSROOM_ID:'http-files-course'};
-  const headers={Cookie:`${SESSION_COOKIE}=${await seal({sub:'shared-editor',courseId:env.NEWSPAPER_CLASSROOM_ID,accessToken:'test',exp:Date.now()+60000},env.SESSION_SECRET)}`,Origin:'https://worker.example','X-Editorial-CSRF':'1'};
+  const headers={Cookie:`${SESSION_COOKIE}=${await memberToken(env,{sub:'shared-editor',courseId:env.NEWSPAPER_CLASSROOM_ID,accessToken:'test',exp:Date.now()+60000},'admin')}`,Origin:'https://worker.example','X-Editorial-CSRF':'1'};
   const send=(path,method='POST',body,extra={})=>worker.fetch(new Request('https://worker.example/api/editorial-files/'+path,{method,headers:{...headers,...extra},body:body===undefined?undefined:body instanceof Uint8Array?body:JSON.stringify(body)}),env);
   assert.equal((await send('projects/2026_Winter/checkout')).status,403);
   const operatorResponse=await send('operator','POST',{role:'chief'});assert.equal(operatorResponse.status,200);const operatorCookie=operatorResponse.headers.get('Set-Cookie');assert.match(operatorCookie,/Secure/);assert.match(operatorCookie,/HttpOnly/);assert.match(operatorCookie,/SameSite=Lax/);headers.Cookie+='; '+operatorCookie.split(';')[0];

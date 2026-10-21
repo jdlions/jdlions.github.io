@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import worker, { authorizePhotoViewer, callbackRedirect, createPhotoAfterDrive, photoContentResponse, photoForClient, publicRoster, validateStudentPhoto } from '../src/index.js';
+import worker, { authorizePhotoViewer, callbackRedirect, createPhotoAfterDrive, photoContentResponse, photoForClient, validateStudentPhoto } from '../src/index.js';
 
 test('uncertain D1 photo commit never deletes a Drive original',async t=>{
   let committed=false,calls=0;
@@ -19,4 +19,3 @@ test('legacy issue photos are not authorized through Classroom submissions',asyn
 test('photo response streams inline with private anti-sniff headers',async()=>{const response=await photoContentResponse({drive_file_id:'drive',filename:'x.jpg'},'token',async()=>({body:new Blob(['x']).stream(),contentType:'image/jpeg',contentLength:'1'}));assert.equal(response.headers.get('cache-control'),'private, no-store');assert.equal(response.headers.get('x-content-type-options'),'nosniff');});
 test('OAuth callback stays on the Worker native role page',()=>{assert.equal(callbackRedirect(new URL('https://worker.example/auth/callback'),'admin'),'https://worker.example/editorial/admin/');assert.equal(callbackRedirect(new URL('https://worker.example/auth/callback'),'student'),'https://worker.example/editorial/student/');});
 test('editorial assets are separate from API routes',async()=>{let assets=0;const env={ASSETS:{fetch:async()=>{assets++;return new Response('asset');}}};assert.equal((await worker.fetch(new Request('https://worker.example/editorial/student/'),env)).status,200);assert.equal(assets,1);});
-test('roster exposes only stable id and display name',()=>{assert.deepEqual(publicRoster([{userId:'1',profile:{name:{fullName:'Kim'}}}]),[{id:'1',name:'Kim'}]);});

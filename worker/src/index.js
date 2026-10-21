@@ -1,3 +1,5 @@
+import {Members} from './members.js';
+import {verifyGoogleIdentity} from './google-identity.js';
 import {normalizeLengthRules} from '../../assets/js/shared/length-rules.js';
 import {validateSubmissionLength,reviewAssignmentLengths} from './assignment-lengths.js';
 import {articleStudentOverview,dashboardSummary,photoStudentSummary,studentPhotos} from './admin-overview.js';
@@ -5,32 +7,13 @@ import {isNewAssignmentEligible} from '../../assets/js/shared/student-identity.j
 import { clearCookie, cookie, randomToken, requireTrustedOrigin, sanitizeHtml, seal, setCookie, STATE_COOKIE, SESSION_COOKIE, unseal } from './security.js';
 import {articleListOptions,listArticlePage} from './article-list.js';
 import {routeEditorialFiles} from './editorial-files.js';
-import { classroom, driveThumbnail, driveFolderPreflight, exchangeCode, resolveMembership, streamDriveImage, uploadToDrive, userInfo } from './google.js';
+import { driveThumbnail, driveFolderPreflight, exchangeCode, streamDriveImage, uploadToDrive } from './google.js';
 import { repository } from './repository.js';
 import { DOCX_MIME, MAX_DOCX_BYTES, parseDocx } from './docx.js';
 import { pridedeskRequest } from './pridedesk-proxy.js';
 import { IssuePublications, publicArchiveResponse } from './issue-publications.js';
 
 const SESSION_SECONDS = 45 * 60;
-const MEMBERSHIP_CACHE_MS = 5 * 60 * 1000;
-const membershipCache = new Map();
-const membershipRequests = new Map();
-async function verifiedMembership(value, env) {
-  const key=`${value.courseId}:${value.sub}`,cached=membershipCache.get(key);
-  if(cached?.expiresAt>Date.now())return cached.value;
-  // Only share in-flight checks for the same authenticated credential. Never
-  // cache a rejection or extend the existing five-minute authorization window.
-  const requestKey=key+':'+value.accessToken;
-  if(!membershipRequests.has(requestKey)){
-    const pending=resolveMembership(env.NEWSPAPER_CLASSROOM_ID,value.accessToken).then(membership=>{
-      for(const [id,entry] of membershipCache)if(entry.expiresAt<=Date.now())membershipCache.delete(id);
-      membershipCache.set(key,{value:membership,expiresAt:Date.now()+MEMBERSHIP_CACHE_MS});
-      return membership;
-    }).finally(()=>membershipRequests.delete(requestKey));
-    membershipRequests.set(requestKey,pending);
-  }
-  return membershipRequests.get(requestKey);
-}
 const allowedPhotoTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
 export function validateStudentPhoto(file, articleSubmissionId, articles) {
   if (!articles.some(article => article.id === articleSubmissionId)) throw Object.assign(new Error('Select one of your own article submissions.'), { status: 403, code: 'article_forbidden' });
@@ -38,7 +21,6 @@ export function validateStudentPhoto(file, articleSubmissionId, articles) {
 }
 const scopes = [
   'openid', 'email', 'profile',
-  'https://www.googleapis.com/auth/classroom.rosters.readonly',
   'https://www.googleapis.com/auth/drive.file'
 ];
 
@@ -48,20 +30,15 @@ const ok = (data, env, status = 200, headers) => response(data, status, env, hea
 const fail = (error, env) => response({ error: { code: error.code || 'internal_error', message: error.status ? error.message : 'Unexpected server error.' } }, error.status || 500, env);
 
 function requireConfig(env) {
-  for (const name of ['GOOGLE_CLIENT_ID','GOOGLE_CLIENT_SECRET','SESSION_SECRET','EDITORIAL_ORIGIN','OAUTH_REDIRECT_URI','NEWSPAPER_CLASSROOM_ID']) {
+  for (const name of ['GOOGLE_CLIENT_ID','GOOGLE_CLIENT_SECRET','SESSION_SECRET','EDITORIAL_ORIGIN','OAUTH_REDIRECT_URI']) {
     if (!env[name]) throw Object.assign(new Error(`${name} is not configured.`), { status: 503, code: 'configuration_error' });
   }
 }
 
-async function session(request, env, verifyMembership = true) {
-  const sealed = cookie(request, SESSION_COOKIE);
-  const value = sealed && await unseal(sealed, env.SESSION_SECRET);
-  if (!value || value.exp <= Date.now() || value.courseId !== env.NEWSPAPER_CLASSROOM_ID) throw Object.assign(new Error('Authentication required.'), { status: 401, code: 'authentication_required' });
-  if (verifyMembership) {
-    const membership=await verifiedMembership(value,env);
-    value.role = membership.role; value.studentId = membership.studentId; value.classroomUserId = membership.classroomUserId;
-  }
-  return value;
+async function session(request, env) {
+  const sealed=cookie(request,SESSION_COOKIE),value=sealed&&await unseal(sealed,env.SESSION_SECRET);
+  if(!value||!Number.isFinite(value.exp)||value.exp<=Date.now()||value.membershipVersion!==1)throw Object.assign(new Error('다시 로그인해 주세요.'),{status:401,code:'authentication_required'});
+  return new Members(env.DB).authenticate(value);
 }
 
 const requireAdmin = value => { if (value.role !== 'admin') throw Object.assign(new Error('Teacher access required.'), { status: 403, code: 'admin_required' }); };
@@ -97,34 +74,19 @@ function nativeForViewer(article,viewer){
   return Object.fromEntries(fields.filter(key=>Object.hasOwn(article,key)).map(key=>[key,article[key]]));
 }
 const escapeText = value => String(value || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const ROSTER_CACHE_MS = 5 * 60 * 1000;
-const rosterCache = new Map();
 
 function textToParagraphs(value) {
   return String(value).replace(/\r\n?/g, '\n').split(/\n{2,}/).map(paragraph => `<p>${escapeText(paragraph).replace(/\n/g, '<br>')}</p>`).join('');
 }
 
 
-export function publicRoster(students) {
-  return (students || []).map(student => ({id:String(student.userId || ''),name:String(student.profile?.name?.fullName || '').trim() || '이름 확인 불가'})).filter(student => student.id);
-}
-
-async function configuredRoster(courseId, token) {
-  const now=Date.now(),cached=rosterCache.get(courseId);
-  if(cached&&cached.expiresAt>now)return cached.students;
-  const students=publicRoster(await classroom.students(courseId,token));
-  rosterCache.set(courseId,{students,expiresAt:now+ROSTER_CACHE_MS});
-  return students;
-}
-
-
 async function login(request, env) {
   requireConfig(env);
   if (new URL(request.url).origin !== env.EDITORIAL_ORIGIN) throw Object.assign(new Error('Editorial origin is misconfigured.'), { status: 503, code: 'configuration_error' });
-  const state = randomToken(), verifier = randomToken(48);
+  const state = randomToken(), verifier = randomToken(48), nonce = randomToken();
   const challenge = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
-  const stateValue = await seal({ state, verifier, origin: env.EDITORIAL_ORIGIN }, env.SESSION_SECRET);
-  const query = new URLSearchParams({ client_id: env.GOOGLE_CLIENT_ID, redirect_uri: env.OAUTH_REDIRECT_URI, response_type: 'code', scope: scopes.join(' '), state, code_challenge: challenge, code_challenge_method: 'S256', access_type: 'online', include_granted_scopes: 'true' });
+  const stateValue = await seal({ state, verifier, nonce, exp:Date.now()+600000, origin: env.EDITORIAL_ORIGIN }, env.SESSION_SECRET);
+  const query = new URLSearchParams({ client_id: env.GOOGLE_CLIENT_ID, redirect_uri: env.OAUTH_REDIRECT_URI, response_type: 'code', scope: scopes.join(' '), state, nonce, code_challenge: challenge, code_challenge_method: 'S256', access_type: 'online', include_granted_scopes: 'true' });
   return new Response(null, { status: 302, headers: { Location: `https://accounts.google.com/o/oauth2/v2/auth?${query}`, 'Set-Cookie': setCookie(STATE_COOKIE, stateValue, 600), 'Cache-Control': 'no-store' } });
 }
 
@@ -133,14 +95,14 @@ async function callback(request, env) {
   const url = new URL(request.url), saved = await unseal(cookie(request, STATE_COOKIE) || '', env.SESSION_SECRET);
   if (url.origin !== env.EDITORIAL_ORIGIN) throw Object.assign(new Error('Editorial origin is misconfigured.'), { status: 503, code: 'configuration_error' });
   if (saved && (saved.origin ? saved.origin !== url.origin : env.PRIDEDESK_REQUEST)) throw Object.assign(new Error('OAuth state origin validation failed.'), { status: 400, code: 'oauth_state_invalid' });
-  if (!saved || !url.searchParams.get('state') || saved.state !== url.searchParams.get('state')) throw Object.assign(new Error('OAuth state validation failed.'), { status: 400, code: 'oauth_state_invalid' });
+  if (!saved || !Number.isFinite(saved.exp) || saved.exp<=Date.now() || !url.searchParams.get('state') || saved.state !== url.searchParams.get('state')) throw Object.assign(new Error('OAuth state validation failed.'), { status: 400, code: 'oauth_state_invalid' });
   if (url.searchParams.get('error')) throw Object.assign(new Error('Google sign-in was cancelled or denied.'), { status: 401, code: 'oauth_denied' });
   const code = url.searchParams.get('code'); if (!code) throw Object.assign(new Error('OAuth authorization code is missing.'), { status: 400, code: 'oauth_code_missing' });
   const tokens = await exchangeCode(code, env, saved.verifier);
-  const [identity, membership] = await Promise.all([userInfo(tokens.access_token), resolveMembership(env.NEWSPAPER_CLASSROOM_ID, tokens.access_token)]);
-  membershipCache.set(`${env.NEWSPAPER_CLASSROOM_ID}:${identity.sub}`,{value:membership,expiresAt:Date.now()+MEMBERSHIP_CACHE_MS});
+  const identity=await verifyGoogleIdentity(tokens,env.GOOGLE_CLIENT_ID,saved.nonce);
+  const membership=await new Members(env.DB).login(identity);
   const expires = Math.min(Date.now() + SESSION_SECONDS * 1000, Date.now() + Number(tokens.expires_in || SESSION_SECONDS) * 1000);
-  const value = await seal({ sub: identity.sub, name: identity.name, email: identity.email, role: membership.role, studentId: membership.studentId, classroomUserId: membership.classroomUserId, courseId: env.NEWSPAPER_CLASSROOM_ID, accessToken: tokens.access_token, exp: expires }, env.SESSION_SECRET);
+  const value = await seal({sub:identity.sub,...membership,accessToken:tokens.access_token,exp:expires},env.SESSION_SECRET);
   return new Response(null, { status: 302, headers: [['Location', callbackRedirect(url, membership.role, env.PRIDEDESK_REQUEST)], ['Set-Cookie', setCookie(SESSION_COOKIE, value, SESSION_SECONDS)], ['Set-Cookie', clearCookie(STATE_COOKIE)], ['Cache-Control','no-store']] });
 }
 
@@ -196,10 +158,20 @@ async function routeApi(request, env, pathname) {
   const viewer = await session(request, env);
   if(pathname.startsWith('/api/editorial-files/'))return routeEditorialFiles(request,env,viewer,pathname);
   if (pathname === '/api/session' && request.method === 'GET') return ok({ authenticated: true, user: { id: viewer.sub, name: viewer.name, email: viewer.email, role: viewer.role, studentId: viewer.studentId } }, env);
-  if (pathname === '/api/classroom/students' && request.method === 'GET') { requireAdmin(viewer); return ok({students:await configuredRoster(env.NEWSPAPER_CLASSROOM_ID,viewer.accessToken)},env); }
+  if (['/api/members/roster','/api/classroom/students'].includes(pathname) && request.method === 'GET') { requireAdmin(viewer); return ok({students:await new Members(env.DB).roster()},env); }
   const repo = repository(env);
+  if(pathname==='/api/admin/members'||pathname.startsWith('/api/admin/members/')||pathname==='/api/admin/cohorts'){
+    requireAdmin(viewer);const members=new Members(env.DB);
+    if(pathname==='/api/admin/members'&&request.method==='GET')return ok(await members.list(new URL(request.url).searchParams),env);
+    const target=pathname.match(/^\/api\/admin\/members\/([\w-]+)$/);
+    if((pathname==='/api/admin/members'&&request.method==='POST')||(target&&request.method==='PATCH')||(pathname==='/api/admin/cohorts'&&request.method==='POST')){
+      const raw=await request.text();let input;try{if(raw.length>4096)throw new Error();input=JSON.parse(raw);}catch{throw Object.assign(new Error('회원 요청 형식을 확인해 주세요.'),{status:400,code:'invalid_member'});}
+      return ok(pathname==='/api/admin/cohorts'?await members.cohort(input):await members.save(target?.[1]||null,input,viewer),env,request.method==='POST'?201:200);
+    }
+    return response({error:{code:'method_not_allowed',message:'Method not allowed.'}},405,env);
+  }
   if(pathname==='/api/admin/dashboard'&&request.method==='GET'){requireAdmin(viewer);return ok(await dashboardSummary(env.DB),env);}
-  if(pathname==='/api/admin/article-overview'&&request.method==='GET'){requireAdmin(viewer);const roster=await configuredRoster(env.NEWSPAPER_CLASSROOM_ID,viewer.accessToken);return ok(await articleStudentOverview(env.DB,roster.filter(isNewAssignmentEligible)),env);}
+  if(pathname==='/api/admin/article-overview'&&request.method==='GET'){requireAdmin(viewer);const roster=await new Members(env.DB).roster();return ok(await articleStudentOverview(env.DB,roster.filter(isNewAssignmentEligible)),env);}
   if(pathname==='/api/admin/photo-students'&&request.method==='GET'){requireAdmin(viewer);return ok(await photoStudentSummary(env.DB),env);}
   if(pathname==='/api/admin/student-photos'&&request.method==='GET'){requireAdmin(viewer);return ok((await studentPhotos(env.DB,new URL(request.url).searchParams.get('student'))).map(photoForClient),env);}
   if (pathname === '/api/publications') {
@@ -222,7 +194,7 @@ async function routeApi(request, env, pathname) {
     const [campaigns,assignments]=await Promise.all([repo.listCampaigns(studentId),repo.listAssignments(studentId)]);
     return ok({campaigns,assignments},env);
   }
-  if(pathname==='/api/assignments'&&request.method==='POST'){requireAdmin(viewer);const input=validateCampaign(await request.json());if(input.recipientStudentIds.length){const roster=await configuredRoster(env.NEWSPAPER_CLASSROOM_ID,viewer.accessToken),allowed=new Set(roster.filter(isNewAssignmentEligible).map(s=>s.id));if(input.recipientStudentIds.some(id=>!allowed.has(id)))throw Object.assign(new Error('신규 과제는 1·2학년 대상 학생만 선택해 주세요.'),{status:400,code:'invalid_assignment_recipients'});}return ok(await repo.createCampaign(input,viewer.sub),env,201);}
+  if(pathname==='/api/assignments'&&request.method==='POST'){requireAdmin(viewer);const input=validateCampaign(await request.json());if(input.recipientStudentIds.length){const roster=await new Members(env.DB).roster(),allowed=new Set(roster.filter(isNewAssignmentEligible).map(s=>s.id));if(input.recipientStudentIds.some(id=>!allowed.has(id)))throw Object.assign(new Error('신규 과제는 1·2학년 대상 학생만 선택해 주세요.'),{status:400,code:'invalid_assignment_recipients'});}return ok(await repo.createCampaign(input,viewer.sub),env,201);}
   const lengthReview=pathname.match(/^\/api\/assignments\/([^/]+)\/length-(preview|apply)$/);
   if(lengthReview&&request.method==='POST'){requireAdmin(viewer);return ok(await reviewAssignmentLengths(env.DB,repo,decodeURIComponent(lengthReview[1]),await request.json(),viewer,env.SESSION_SECRET,lengthReview[2]==='apply'),env);}
   const assignmentUpdate=pathname.match(/^\/api\/assignments\/([^/]+)$/);
@@ -231,7 +203,7 @@ async function routeApi(request, env, pathname) {
   if(deletionSummary&&request.method==='GET'){requireAdmin(viewer);return ok(await repo.assignmentDeletionSummary(decodeURIComponent(deletionSummary[1])),env);}
   if(assignmentUpdate&&request.method==='DELETE'){requireAdmin(viewer);validateAssignmentDeletion(await request.json());return ok(await repo.deleteCampaign(decodeURIComponent(assignmentUpdate[1])),env);}
   const distribute=pathname.match(/^\/api\/assignments\/([^/]+)\/distribute$/);
-  if(distribute&&request.method==='POST'){requireAdmin(viewer);const campaign=await repo.getCampaign(distribute[1]);if(!campaign)throw Object.assign(new Error('Assignment not found.'),{status:404,code:'assignment_not_found'});if(campaign.status==='closed')throw Object.assign(new Error('Closed assignments cannot be distributed.'),{status:409,code:'assignment_closed'});const input=await request.json(),roster=await configuredRoster(env.NEWSPAPER_CLASSROOM_ID,viewer.accessToken),selected=new Set((input.studentIds?.length?input.studentIds:campaign.recipientStudentIds||[]).map(String)),students=roster.filter(isNewAssignmentEligible).filter(student=>(input.audienceMode||campaign.audienceMode)==='all'||selected.has(student.id));if(!students.length)throw Object.assign(new Error('Select at least one student.'),{status:400,code:'assignment_recipients_required'});return ok(await repo.distributeCampaign(campaign,students),env);}
+  if(distribute&&request.method==='POST'){requireAdmin(viewer);const campaign=await repo.getCampaign(distribute[1]);if(!campaign)throw Object.assign(new Error('Assignment not found.'),{status:404,code:'assignment_not_found'});if(campaign.status==='closed')throw Object.assign(new Error('Closed assignments cannot be distributed.'),{status:409,code:'assignment_closed'});const input=await request.json(),roster=await new Members(env.DB).roster(),selected=new Set((input.studentIds?.length?input.studentIds:campaign.recipientStudentIds||[]).map(String)),students=roster.filter(isNewAssignmentEligible).filter(student=>(input.audienceMode||campaign.audienceMode)==='all'||selected.has(student.id));if(!students.length)throw Object.assign(new Error('Select at least one student.'),{status:400,code:'assignment_recipients_required'});return ok(await repo.distributeCampaign(campaign,students),env);}
   const assignmentInstanceId=assignmentArticleInstanceId(pathname);
   if(assignmentInstanceId&&request.method==='POST'){requireStudent(viewer);const instance=await repo.getAssignmentInstance(assignmentInstanceId);if(!instance||instance.student_id!==viewer.studentId)throw Object.assign(new Error('Assignment slot not found.'),{status:404,code:'assignment_not_found'});if(instance.article_id)return ok(nativeForViewer(await repo.getNativeArticle(instance.article_id),viewer),env);ensureAssignmentWritable(instance);return ok(nativeForViewer(await repo.createArticleForAssignment(instance,viewer.studentId),viewer),env,201);}
   if(pathname==='/api/native/articles'&&request.method==='GET'){

@@ -17,7 +17,7 @@ async function setup(page,{n=1,empty=false,partial=false}={}){
   else if(p==='/api/admin/photo-students')data=empty?[]:students.flatMap(s=>slots.map(slot=>({studentId:s.id,studentName:s.name,articleType:slot.id,photoCount:slot.id==='school'?1:0,unreviewed:slot.id==='school'?1:0})));
   else if(p==='/api/admin/student-photos')data=[{id:'p',articleType:'school',filename:'Photo',caption:'Private photo',status:'unreviewed'}];
   else if(p==='/api/photos/p/thumbnail')return route.fulfill({contentType:'image/png',body:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6nAAAAABJRU5ErkJggg==','base64')});
-  else if(p==='/api/classroom/students')data={students:[...students,{id:'alumni',name:'31001 졸업생'}]};
+  else if(p==='/api/members/roster')data={students:[...students,{id:'alumni',name:'31001 졸업생'}]};
   else throw Error(p);
   return route.fulfill({json:data});
  });

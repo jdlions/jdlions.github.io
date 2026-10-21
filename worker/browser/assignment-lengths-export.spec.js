@@ -15,7 +15,7 @@ async function setup(page,{role='admin',view='articles',limits={},count=20}={}){
   if(path==='/api/session')response={authenticated:true,user:{role,name:'11001 테스트',studentId:'student'}};
   else if(path==='/api/admin/article-overview')response=data;
   else if(path==='/api/assignments')response=req.method()==='POST'?{...campaign,...req.postDataJSON()}:{campaigns:[campaign],assignments:[]};
-  else if(path==='/api/classroom/students')response={students};
+  else if(path==='/api/members/roster')response={students};
   else if(path==='/api/assignments/c'){Object.assign(campaign,req.postDataJSON());response=campaign;}
   else if(path.endsWith('/length-preview'))response={...req.postDataJSON(),token:'preview',valid:15,below:1,above:1,targetStudents:2,belowStudents:1,aboveStudents:1,completedOutside:[{}],unverifiable:[],targets:[{studentName:'11003 김학생',articleType:'school',status:'submitted',text:'현재 2자 · 최소 3자 · 1자 부족'},{studentName:'21004 이학생',articleType:'feature',status:'reviewing',text:'현재 10자 · 최대 8자 · 2자 초과'}]};
   else if(path.endsWith('/length-apply')){applied++;response={applied:true,rejectedCount:2};}

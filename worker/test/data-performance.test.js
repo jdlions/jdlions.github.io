@@ -1,3 +1,4 @@
+import {memberToken,registerFixture} from './member-fixture.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
@@ -59,7 +60,7 @@ test('student assignment HTTP response never exposes other recipients; admin ret
  });
  const env={DB:f.db,SESSION_SECRET:'audit-fixture',NEWSPAPER_CLASSROOM_ID:'audit-privacy'};
  for(const role of ['student','admin']){
-   const token=await seal({sub:role,courseId:env.NEWSPAPER_CLASSROOM_ID,accessToken:role,exp:Date.now()+60000},env.SESSION_SECRET);
+   const token=await memberToken(env,{sub:role==='student'?'student-a':role,courseId:env.NEWSPAPER_CLASSROOM_ID,accessToken:role,exp:Date.now()+60000},role);
    const response=await worker.fetch(new Request('https://local.test/api/assignments',{headers:{Cookie:SESSION_COOKIE+'='+token}}),env);
    assert.equal(response.status,200);assert.match(response.headers.get('Cache-Control'),/no-store/);
    const data=await response.json();assert.equal(data.campaigns[0].instructions,'Keep instructions');
@@ -77,7 +78,7 @@ test('summary preserves metadata/preview but excludes bodies and private fields;
  const bytes=x=>Buffer.byteLength(JSON.stringify(x));assert(bytes(after)<bytes(before)*0.1);
  t.mock.method(globalThis,'fetch',async url=>Response.json(String(url).includes('userProfiles')?{id:'student'}:String(url).includes('/teachers/')?{}:{userId:'student'},{status:String(url).includes('/teachers/')?404:200}));
  const env={DB:f.db,SESSION_SECRET:'local-test',NEWSPAPER_CLASSROOM_ID:'performance'};
- const token=await seal({sub:'student',studentId:'student',courseId:'performance',accessToken:'test',exp:Date.now()+60000},env.SESSION_SECRET);
+ const token=await memberToken(env,{sub:'student',studentId:'student',courseId:'performance',accessToken:'test',exp:Date.now()+60000},'student');
  const request=path=>worker.fetch(new Request('https://local.test'+path,{headers:{Cookie:SESSION_COOKIE+'='+token}}),env);
  const oldResponse=await(await request('/api/native/articles')).json(),newResponse=await(await request('/api/native/articles?summary=1')).json(),detail=await(await request('/api/native/articles/'+before[0].id)).json();
  assert.doesNotMatch(JSON.stringify(newResponse),/PRIVATE|draftHtml|editorDraftHtml|internalNote/);assert.equal(detail.studentFeedback,'Student feedback');assert.equal(detail.draftHtml,draft);

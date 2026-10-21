@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {fetchWithTimeout} from '../../assets/js/shared/request-timeout.js';
 import {api,apiTimeout} from '../../assets/js/services/api-client.js';
-import {userInfo,downloadDriveFile} from '../src/google.js';
+import {exchangeCode,downloadDriveFile} from '../src/google.js';
 test('deadline terminates stalled headers and stalled response body',async t=>{
  const keep=setTimeout(()=>{},1000);
  try{for(const bodyStall of [false,true]){
@@ -17,12 +17,12 @@ test('API policies distinguish session, ordinary calls and transfers; preserve C
 });
 test('Google JSON and Drive binary requests use abort signals and preserve bodies',async t=>{
  t.mock.method(globalThis,'fetch',async(url,init)=>{assert(init.signal);return String(url).includes('alt=media')?new Response('binary'):Response.json({id:'user'});});
- assert.deepEqual(await userInfo('token'),{id:'user'});assert.equal(new TextDecoder().decode(await downloadDriveFile('file','token',100)),'binary');
+ assert.deepEqual(await exchangeCode('code',{},'verifier'),{id:'user'});assert.equal(new TextDecoder().decode(await downloadDriveFile('file','token',100)),'binary');
 });
 
 test('Google timeout produces a safe 504 for both metadata and transfer requests',async t=>{
  const original=setTimeout,keep=original(()=>{},1000),limits=[];
  t.mock.method(globalThis,'setTimeout',(fn,ms)=>{limits.push(ms);return original(fn,5);});
  t.mock.method(globalThis,'fetch',async()=>new Promise(()=>{}));
- try{await assert.rejects(userInfo('private-token'),e=>e.status===504&&e.code==='google_timeout'&&!e.message.includes('private-token'));await assert.rejects(downloadDriveFile('file','private-token',100),e=>e.status===504&&e.code==='google_timeout');assert.deepEqual(limits,[20000,120000]);}finally{clearTimeout(keep);}
+ try{await assert.rejects(exchangeCode('private-token',{},'verifier'),e=>e.status===504&&e.code==='google_timeout'&&!e.message.includes('private-token'));await assert.rejects(downloadDriveFile('file','private-token',100),e=>e.status===504&&e.code==='google_timeout');assert.deepEqual(limits,[20000,120000]);}finally{clearTimeout(keep);}
 });

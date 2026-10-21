@@ -1,3 +1,4 @@
+import {memberToken,registerFixture} from './member-fixture.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
@@ -57,7 +58,7 @@ test('Worker deletion and preview enforce authentication, admin role and CSRF',a
  const env={DB:f.db,SESSION_SECRET:'test-only-secret',NEWSPAPER_CLASSROOM_ID:'test'};
  globalThis.fetch=async url=>String(url).includes('/teachers/')?new Response('{}',{status:404}):new Response(JSON.stringify({id:'student',userId:'student'}),{headers:{'Content-Type':'application/json'}});
  try{
-  const cookie=SESSION_COOKIE+'='+await seal({sub:'delete-test-student',courseId:'test',exp:Date.now()+60000,accessToken:'test'},env.SESSION_SECRET);
+  const cookie=SESSION_COOKIE+'='+await memberToken(env,{sub:'delete-test-student',courseId:'test',exp:Date.now()+60000,accessToken:'test'},'student');
   for(const suffix of ['', '/deletion-summary']){
    const method=suffix?'GET':'DELETE',url='https://worker.example/api/assignments/'+f.campaign.id+suffix;
    const headers={Origin:'https://worker.example','X-Editorial-CSRF':'1',Cookie:cookie};
@@ -73,7 +74,7 @@ test('admin HTTP route rejects invalid confirmation without changes and accepts 
  const env={DB:f.db,SESSION_SECRET:'test-only-secret',NEWSPAPER_CLASSROOM_ID:'test'};
  globalThis.fetch=async()=>new Response(JSON.stringify({id:'teacher',userId:'teacher'}));
  try{
-  const Cookie=SESSION_COOKIE+'='+await seal({sub:'delete-test-teacher',courseId:'test',exp:Date.now()+60000,accessToken:'test'},env.SESSION_SECRET);
+  const Cookie=SESSION_COOKIE+'='+await memberToken(env,{sub:'delete-test-teacher',courseId:'test',exp:Date.now()+60000,accessToken:'test'},'admin');
   const headers={Origin:'https://worker.example','X-Editorial-CSRF':'1',Cookie,'Content-Type':'application/json'},url='https://worker.example/api/assignments/'+f.campaign.id;
   assert.equal((await worker.fetch(new Request(url+'/deletion-summary',{headers}),env)).status,200);
   for(const confirmation of ['', '삭제 ', ' 삭제']){

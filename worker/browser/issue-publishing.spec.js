@@ -14,7 +14,7 @@ async function admin(page, { failFirst = false, listFailure = false } = {}) {
     else if (path === '/api/admin/article-overview') data = {students:[],items:[],campaigns:[]};
     else if (path === '/api/native/articles' || path === '/api/photos') data = [];
     else if (path === '/api/assignments') data = { campaigns: [], assignments: [] };
-    else if (path === '/api/classroom/students') data = { students: [] };
+    else if (path === '/api/members/roster') data = { students: [] };
     else if (path === '/api/publications' && req.method() === 'GET') {
       if (listFailure) return route.fulfill({ status: 503, json: { error: { message: '발행 목록을 읽을 수 없습니다.' } } });
       data = { issues, nextNumber: Math.max(...issues.map(x => x.number)) + 1 };
