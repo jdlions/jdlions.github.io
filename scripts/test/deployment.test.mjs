@@ -26,6 +26,8 @@ test('reviewed 0008 matches actual SQL; older pending migrations require manual 
   assert.throws(()=>migrationPlan(files,[],approved),/manual_review/);
   assert.throws(()=>migrationPlan(files,files.filter(f=>f.name!=='0009_members.sql').map(f=>f.name),approved),/manual_review/);
   assert.equal(Object.hasOwn(approved,'0009_members.sql'),false);
+  assert.throws(()=>migrationPlan(files,files.filter(f=>f.name!=='0010_member_assignment_targets.sql').map(f=>f.name),approved),/manual_review/);
+  assert.equal(Object.hasOwn(approved,'0010_member_assignment_targets.sql'),false);
 });
 test('destructive/backfill/constraint migrations stop even with a matching approved digest',()=>{
   for(const sql of ['DELETE FROM articles;','DROP TABLE articles;','UPDATE articles SET status=\'draft\';','ALTER TABLE articles ADD COLUMN x TEXT NOT NULL;','ALTER TABLE articles ADD COLUMN x TEXT DEFAULT \'new\';','CREATE TRIGGER cleanup AFTER INSERT ON x BEGIN DELETE FROM articles; END;','CREATE TABLE copy AS SELECT * FROM articles;']){

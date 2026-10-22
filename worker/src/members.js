@@ -1,3 +1,4 @@
+import {memberRecipient,resolveMemberAssignments} from './member-assignments.js';
 const failure=(message,status=403,code='membership_required')=>Object.assign(new Error(message),{status,code});
 export const MEMBERSHIP_VERSION=1;
 const primary=db=>typeof db.withSession==='function'?db.withSession('first-primary'):db;
@@ -30,16 +31,16 @@ export class Members {
     if(!row.active||row.email!==email||(row.google_sub&&row.google_sub!==identity.sub))throw failure('등록 정보와 Google 계정이 일치하지 않습니다. 관리자에게 문의해 주세요.');
     if(!row.google_sub){
       const now=new Date().toISOString();
-      try{await this.db.prepare('UPDATE members SET google_sub=?,linked_at=?,updated_at=?,changed_by=? WHERE id=? AND google_sub IS NULL AND active=1 AND email=? AND auth_version=?').bind(identity.sub,now,now,'oauth:'+identity.sub,row.id,email,row.auth_version).run();}
+      try{await this.db.batch([this.db.prepare('UPDATE members SET google_sub=?,linked_at=?,updated_at=?,changed_by=? WHERE id=? AND google_sub IS NULL AND active=1 AND email=? AND auth_version=?').bind(identity.sub,now,now,'oauth:'+identity.sub,row.id,email,row.auth_version),...resolveMemberAssignments(this.db,row.id)]);}
       catch{throw failure('계정 연결을 확인할 수 없습니다. 관리자에게 문의해 주세요.',409,'member_link_conflict');}
       row=await this.get(row.id);
       if(!row?.active||row.google_sub!==identity.sub||row.email!==email)throw failure('회원 정보가 변경되었습니다. 다시 로그인해 주세요.');
-    }
+    }else if(row.role==='student')await this.db.batch(resolveMemberAssignments(this.db,row.id));
     return {memberId:row.id,authVersion:row.auth_version,membershipVersion:MEMBERSHIP_VERSION,role:row.role==='teacher'?'admin':'student',studentId:row.role==='student'?identity.sub:null,name:row.name,email:row.email};
   }
   async roster(){
-    const {results}=await this.db.prepare("SELECT google_sub,student_number,name,cohort FROM members WHERE role='student' AND active=1 AND google_sub IS NOT NULL ORDER BY student_number,google_sub").all();
-    return results.map(r=>({id:r.google_sub,name:`${r.student_number} ${r.name}`,studentNumber:r.student_number,cohort:r.cohort}));
+    const {results}=await this.db.prepare("SELECT id,google_sub,student_number,name,cohort FROM members WHERE role='student' AND active=1 ORDER BY student_number,id").all();
+    return results.map(r=>({id:r.google_sub||memberRecipient(r.id),memberId:r.id,name:`${r.student_number} ${r.name}`,studentNumber:r.student_number,cohort:r.cohort}));
   }
   async list(params){
     const q=String(params.get('q')||'').trim();if(q.length>100)throw failure('검색어는 100자 이하로 입력해 주세요.',400,'invalid_member_search');
@@ -63,7 +64,7 @@ export class Members {
         const result=await this.db.prepare('UPDATE members SET name=?,email=?,role=?,student_number=?,cohort=?,active=?,auth_version=auth_version+1,updated_at=?,changed_by=? WHERE id=? AND auth_version=?').bind(v.name,v.email,v.role,v.number,v.cohort,v.active,now,actor.memberId,id,input.version).run();
         if((result.meta?.changes??result.changes)===0)throw failure('다른 관리자가 수정했습니다. 새로고침해 주세요.',409,'member_conflict');
       }else await this.db.prepare('INSERT INTO members(id,email,name,role,student_number,cohort,active,created_at,updated_at,changed_by) VALUES(?,?,?,?,?,?,?,?,?,?)').bind(target,v.email,v.name,v.role,v.number,v.cohort,v.active,now,now,actor.memberId).run();
-    }catch(error){if(error.status)throw error;const text=String(error.message);if(/bootstrap_teacher_protected|last_teacher_required/.test(text))throw failure('기본 관리자와 마지막 활성 교사의 권한은 해제할 수 없습니다.',409,'teacher_protected');if(/UNIQUE/.test(text))throw failure('이메일 또는 같은 기수의 학번이 이미 등록되어 있습니다.',409,'member_duplicate');throw error;}
+    }catch(error){if(error.status)throw error;const text=String(error.message);if(/member_pending_email_locked/.test(text))throw failure('배정 대상 회원의 로그인 전 이메일은 변경할 수 없습니다. 등록 계정을 먼저 확인해 주세요.',409,'assigned_member_email_locked');if(/bootstrap_teacher_protected|last_teacher_required/.test(text))throw failure('기본 관리자와 마지막 활성 교사의 권한은 해제할 수 없습니다.',409,'teacher_protected');if(/UNIQUE/.test(text))throw failure('이메일 또는 같은 기수의 학번이 이미 등록되어 있습니다.',409,'member_duplicate');throw error;}
     return mapped(await this.get(target));
   }
   async cohort(input){

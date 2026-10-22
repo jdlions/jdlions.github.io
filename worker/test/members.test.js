@@ -10,10 +10,10 @@ test('only explicitly registered active school accounts can bind; Classroom gran
   const {members,sql}=fixture(t);
   await assert.rejects(members.login({sub:'123',email:'h2611001@joongdong.hs.kr'}),e=>e.status===403);
   const row=await members.save(null,student(),actor);
-  assert.equal((await members.roster()).length,0);
+  assert.equal((await members.roster())[0].id,'member:'+row.id);
   const claims=await members.login({sub:'123',email:row.email});
   assert.equal(claims.studentId,'123');assert.equal(claims.role,'student');
-  assert.deepEqual(await members.roster(),[{id:'123',name:'11001 학생',studentNumber:'11001',cohort:36}]);
+  assert.deepEqual(await members.roster(),[{id:'123',memberId:row.id,name:'11001 학생',studentNumber:'11001',cohort:36}]);
   assert.equal(sql.prepare("SELECT COUNT(*) n FROM member_audit WHERE action='linked'").get().n,1);
   await assert.rejects(members.login({sub:'456',email:row.email}),e=>e.status===403);
   assert.equal(sql.prepare('SELECT google_sub FROM members WHERE id=?').get(row.id).google_sub,'123');
