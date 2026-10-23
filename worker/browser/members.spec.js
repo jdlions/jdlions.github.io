@@ -5,6 +5,7 @@ async function setup(page){
  await page.route('**/api/**',async route=>{const request=route.request(),url=new URL(request.url()),p=url.pathname;let data;
  if(p==='/api/session')data={authenticated:true,user:{role:'admin',name:'Teacher'}};
  else if(p==='/api/admin/dashboard')data={assignment:{campaign:null,progress:[]},editorial:null,errors:{}};
+ else if(p==='/api/admin/member-search'){await route.fulfill({status:403,json:{error:{message:'Google 검색 연결이 필요합니다.'}}});return;}
  else if(p==='/api/admin/cohorts'){const body=request.postDataJSON();cohorts=[body.number,...cohorts];writes.push(body);data=body;}
  else if(p.startsWith('/api/admin/members')){if(request.method()==='GET'){const q=url.searchParams.get('q')||'',role=url.searchParams.get('role');data={members:members.filter(m=>(!q||m.name.includes(q)||m.email.includes(q)||m.studentNumber?.includes(q))&&(!role||m.role===role)),cohorts};}else{const body=request.postDataJSON();writes.push(body);const id=p.split('/')[4]||'new';data={...body,id,linked:false,version:2,createdAt:'2026-10-01',updatedAt:'2026-10-02'};members=[...members.filter(m=>m.id!==id),data];}}
  else throw Error('Unexpected '+p);
