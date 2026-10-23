@@ -48,3 +48,13 @@ for(const year of [2027,2028])test('new academic year recommendations without st
  await d.locator('[name=cohort]').selectOption('35');await d.locator('[name=studentNumber]').fill('11002');await expect(d.locator('[name=cohort]')).toHaveValue('35');
  await expect(d).toContainText('직접 입력');await expect(d.locator('[name=active]')).toHaveCount(0);
 });
+
+test('school autocomplete chooses a current number from display name, not historical email',async({page})=>{
+ const state=await setup(page);await page.route('**/api/admin/member-search?*',route=>route.fulfill({json:{people:[{displayName:'20624가상학생',email:'h2511999@joongdong.hs.kr'},{displayName:'20624가상학생',email:'another@joongdong.hs.kr'}]}}));
+ await page.locator('[data-admin-view=members]').click();await expect(page.locator('.member-card')).toBeVisible();await page.locator('[data-new-member]').click();const d=page.getByRole('dialog');
+ await d.locator('[name=name]').fill('가상학생');await expect(d.getByRole('listbox').getByRole('option')).toHaveCount(2);await page.keyboard.press('ArrowDown');await page.keyboard.press('Enter');
+ await expect(d.locator('[name=name]')).toHaveValue('가상학생');await expect(d.locator('[name=email]')).toHaveValue('h2511999@joongdong.hs.kr');await expect(d.locator('[name=studentNumber]')).toHaveValue('20624');expect(state.writes).toHaveLength(0);
+});
+test('school autocomplete error leaves manual fields editable',async({page})=>{
+ await setup(page);await page.route('**/api/admin/member-search?*',route=>route.fulfill({status:403,json:{error:{message:'검색 연결 필요'}}}));await page.locator('[data-admin-view=members]').click();await expect(page.locator('.member-card')).toBeVisible();await page.locator('[data-new-member]').click();const d=page.getByRole('dialog');await d.locator('[name=name]').fill('직접 입력');await expect(d).toContainText('검색 연결 필요');await expect(d.locator('[name=email]')).toBeEditable();
+});

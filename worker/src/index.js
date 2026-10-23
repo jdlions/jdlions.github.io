@@ -1,3 +1,4 @@
+import {searchSchoolPeople,searchScopes} from './member-search.js';
 import {memberRecipient} from './member-assignments.js';
 import {Members} from './members.js';
 import {verifyGoogleIdentity} from './google-identity.js';
@@ -81,13 +82,13 @@ function textToParagraphs(value) {
 }
 
 
-async function login(request, env) {
+async function login(request, env, searchSource=null, searchMember=null) {
   requireConfig(env);
   if (new URL(request.url).origin !== env.EDITORIAL_ORIGIN) throw Object.assign(new Error('Editorial origin is misconfigured.'), { status: 503, code: 'configuration_error' });
   const state = randomToken(), verifier = randomToken(48), nonce = randomToken();
   const challenge = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
-  const stateValue = await seal({ state, verifier, nonce, exp:Date.now()+600000, origin: env.EDITORIAL_ORIGIN }, env.SESSION_SECRET);
-  const query = new URLSearchParams({ client_id: env.GOOGLE_CLIENT_ID, redirect_uri: env.OAUTH_REDIRECT_URI, response_type: 'code', scope: scopes.join(' '), state, nonce, code_challenge: challenge, code_challenge_method: 'S256', access_type: 'online', include_granted_scopes: 'true' });
+  const stateValue = await seal({ state, verifier, nonce, searchSource, searchMember, exp:Date.now()+600000, origin: env.EDITORIAL_ORIGIN }, env.SESSION_SECRET);
+  const query = new URLSearchParams({ client_id: env.GOOGLE_CLIENT_ID, redirect_uri: env.OAUTH_REDIRECT_URI, response_type: 'code', scope: [...scopes,...(searchSource?[searchScopes[searchSource]]:[])].join(' '), state, nonce, code_challenge: challenge, code_challenge_method: 'S256', access_type: 'online', include_granted_scopes: 'true' });
   return new Response(null, { status: 302, headers: { Location: `https://accounts.google.com/o/oauth2/v2/auth?${query}`, 'Set-Cookie': setCookie(STATE_COOKIE, stateValue, 600), 'Cache-Control': 'no-store' } });
 }
 
@@ -101,10 +102,11 @@ async function callback(request, env) {
   const code = url.searchParams.get('code'); if (!code) throw Object.assign(new Error('OAuth authorization code is missing.'), { status: 400, code: 'oauth_code_missing' });
   const tokens = await exchangeCode(code, env, saved.verifier);
   const identity=await verifyGoogleIdentity(tokens,env.GOOGLE_CLIENT_ID,saved.nonce);
+  if(saved.searchSource){const existing=await session(request,env);requireAdmin(existing);if(existing.memberId!==saved.searchMember||existing.sub!==identity.sub)throw Object.assign(new Error('동일한 관리자 계정으로 연결해 주세요.'),{status:403,code:'search_account_mismatch'});}
   const membership=await new Members(env.DB).login(identity);
   const expires = Math.min(Date.now() + SESSION_SECONDS * 1000, Date.now() + Number(tokens.expires_in || SESSION_SECONDS) * 1000);
-  const value = await seal({sub:identity.sub,...membership,accessToken:tokens.access_token,exp:expires},env.SESSION_SECRET);
-  return new Response(null, { status: 302, headers: [['Location', callbackRedirect(url, membership.role, env.PRIDEDESK_REQUEST)], ['Set-Cookie', setCookie(SESSION_COOKIE, value, SESSION_SECONDS)], ['Set-Cookie', clearCookie(STATE_COOKIE)], ['Cache-Control','no-store']] });
+  const value = await seal({sub:identity.sub,...membership,accessToken:tokens.access_token,searchSource:saved.searchSource&&String(tokens.scope||'').split(' ').includes(searchScopes[saved.searchSource])?saved.searchSource:null,exp:expires},env.SESSION_SECRET);
+  return new Response(null, { status: 302, headers: [['Location', callbackRedirect(url, membership.role, env.PRIDEDESK_REQUEST)+(saved.searchSource?'#view=members':'')], ['Set-Cookie', setCookie(SESSION_COOKIE, value, SESSION_SECONDS)], ['Set-Cookie', clearCookie(STATE_COOKIE)], ['Cache-Control','no-store']] });
 }
 
 export function callbackRedirect(url, role, pridedesk = false) {
@@ -160,6 +162,11 @@ async function routeApi(request, env, pathname) {
   if(pathname.startsWith('/api/editorial-files/'))return routeEditorialFiles(request,env,viewer,pathname);
   if (pathname === '/api/session' && request.method === 'GET') return ok({ authenticated: true, user: { id: viewer.sub, name: viewer.name, email: viewer.email, role: viewer.role, studentId: viewer.studentId } }, env);
   if (['/api/members/roster','/api/classroom/students'].includes(pathname) && request.method === 'GET') { requireAdmin(viewer); return ok({students:await new Members(env.DB).roster({forAssignment:true})},env); }
+  if(pathname==='/api/admin/member-search/connect'&&request.method==='POST'){
+    requireAdmin(viewer);const {source}=await request.json();if(!Object.hasOwn(searchScopes,source))throw Object.assign(new Error('검색 출처를 선택해 주세요.'),{status:400});
+    const redirect=await login(request,env,source,viewer.memberId);return ok({url:redirect.headers.get('Location')},env,200,{'Set-Cookie':redirect.headers.get('Set-Cookie')});
+  }
+  if(pathname==='/api/admin/member-search'&&request.method==='GET'){requireAdmin(viewer);return ok(await searchSchoolPeople(new URL(request.url).searchParams.get('q'),viewer),env);}
   const repo = repository(env);
   if(pathname==='/api/admin/members'||pathname.startsWith('/api/admin/members/')||pathname==='/api/admin/cohorts'){
     requireAdmin(viewer);const members=new Members(env.DB);
