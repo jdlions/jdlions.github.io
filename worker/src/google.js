@@ -1,7 +1,6 @@
 import { fetchWithTimeout } from '../../assets/js/shared/request-timeout.js';
 const fetchGoogle=(url,init={})=>fetchWithTimeout(url,init,/\/upload\/|alt=media/.test(url)?120000:20000,()=>Object.assign(new Error('Google 응답 시간이 초과되었습니다. 결과를 확인한 뒤 다시 시도해 주세요.'),{status:504,code:'google_timeout'}));
 const GOOGLE_API = 'https://www.googleapis.com';
-const CLASSROOM_API = 'https://classroom.googleapis.com';
 
 function googleErrorStatus(status) {
   if ([400, 401, 403, 404, 429].includes(status)) return status;
@@ -18,54 +17,12 @@ async function googleFetch(path, accessToken, init = {}) {
   return response.status === 204 ? null : response.json();
 }
 
-async function classroomFetch(path, accessToken, init = {}) {
-  const response = await fetchGoogle(`${CLASSROOM_API}${path}`, { ...init, headers: { Authorization: `Bearer ${accessToken}`, ...init.headers } });
-  if (!response.ok) {
-    await response.body?.cancel();
-    throw Object.assign(new Error(`Google Classroom API request failed (${response.status}).`), { status: googleErrorStatus(response.status), code: 'google_api_error' });
-  }
-  return response.status === 204 ? null : response.json();
-}
-
 export async function exchangeCode(code, env, verifier) {
   const body = new URLSearchParams({ code, client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET, redirect_uri: env.OAUTH_REDIRECT_URI, grant_type: 'authorization_code', code_verifier: verifier });
   const response = await fetchGoogle('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
   if (!response.ok) throw Object.assign(new Error('Google OAuth token exchange failed.'), { status: 401, code: 'oauth_exchange_failed' });
   return response.json();
 }
-
-export async function userInfo(accessToken) { return googleFetch('/oauth2/v3/userinfo', accessToken); }
-
-async function membership(path, accessToken) {
-  try { return await classroomFetch(path, accessToken); }
-  catch (error) { if (error.status === 404) return null; throw error; }
-}
-
-export async function resolveMembership(courseId, accessToken) {
-  const profile = await classroomFetch('/v1/userProfiles/me', accessToken);
-  if (!profile?.id) throw Object.assign(new Error('Google Classroom user profile is missing an ID.'), { status: 502, code: 'classroom_profile_invalid' });
-  const userId = encodeURIComponent(profile.id);
-  const teacher = await membership(`/v1/courses/${encodeURIComponent(courseId)}/teachers/${userId}`, accessToken);
-  if (teacher) return { role: 'admin', studentId: null, classroomUserId: teacher.userId };
-  const student = await membership(`/v1/courses/${encodeURIComponent(courseId)}/students/${userId}`, accessToken);
-  if (student) return { role: 'student', studentId: student.userId, classroomUserId: student.userId };
-  throw Object.assign(new Error('This account is not a member of the configured newspaper Classroom.'), { status: 403, code: 'classroom_membership_required' });
-}
-
-export const classroom = {
-  students: async (courseId, token) => {
-    const students = [];
-    let pageToken = '';
-    do {
-      const query = new URLSearchParams({ pageSize: '100' });
-      if (pageToken) query.set('pageToken', pageToken);
-      const data = await classroomFetch(`/v1/courses/${encodeURIComponent(courseId)}/students?${query}`, token);
-      students.push(...(data.students || []));
-      pageToken = data.nextPageToken || '';
-    } while (pageToken);
-    return students;
-  }
-};
 
 export async function downloadDriveFile(fileId, token, maxBytes) {
   const response = await fetchGoogle(`${GOOGLE_API}/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, { headers: { Authorization: `Bearer ${token}` } });

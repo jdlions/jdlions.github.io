@@ -1,0 +1,37 @@
+import {api} from '../services/api-client.js';
+import {escapeHtml as esc,loadingState} from '../shared/ui.js';
+import {openDialog} from '../shared/dialog.js';
+export function suggestedCohort(number){return /^2\d{4}$/.test(number)?35:/^1\d{4}$/.test(number)?36:null;}
+export function createMemberManager(){
+  let root,generation=0,controller,timer,busy=false,cohorts=[];
+  const filters={q:'',role:'',cohort:''};
+  function cancel(){generation++;controller?.abort();clearTimeout(timer);}
+  async function load(){
+    clearTimeout(timer);controller?.abort();controller=new AbortController();const stamp=++generation;
+    const list=root.querySelector('[data-members-list]');list.innerHTML=loadingState('회원 불러오는 중…');
+    try{
+      const data=await api('/api/admin/members?'+new URLSearchParams(filters),{signal:controller.signal});if(stamp!==generation)return;cohorts=data.cohorts;
+      const select=root.querySelector('[data-member-cohort-filter]');select.innerHTML='<option value="">전체 기수</option>'+cohorts.map(n=>`<option value="${n}">${n}기</option>`).join('');select.value=filters.cohort;
+      list.innerHTML=data.members.length?data.members.map(m=>`<article class="panel member-card"><div><strong>${esc(m.name)}</strong> <span class="status-pill">${m.role==='teacher'?'교사':`${m.cohort}기 학생`}</span><p>${esc(m.email)}</p><p>${m.studentNumber?`학번 ${esc(m.studentNumber)} · `:''}${m.active?'활성':'비활성'} · ${m.linked?'Google 계정 연결됨':'최초 로그인 필요'}</p><small>등록 ${esc(m.createdAt.slice(0,10))} · 수정 ${esc(m.updatedAt.slice(0,10))}</small></div><button type="button" data-edit-member="${esc(m.id)}">수정</button></article>`).join(''):'<p class="notice">조건에 맞는 회원이 없습니다.</p>';
+      list.querySelectorAll('[data-edit-member]').forEach(b=>b.onclick=()=>edit(data.members.find(m=>m.id===b.dataset.editMember),b));
+    }catch(e){if(stamp!==generation)return;list.innerHTML=`<p class="notice notice--error" role="status">${esc(e.message)}</p><button data-member-retry>다시 시도</button>`;list.querySelector('button').onclick=load;}
+  }
+  function edit(member,trigger){
+    const dialog=document.createElement('dialog');dialog.className='upload-modal member-dialog';dialog.setAttribute('aria-labelledby','member-form-title');
+    dialog.innerHTML=`<form data-member-form><h2 id="member-form-title">${member?'회원 수정':'회원 등록'}</h2><div class="form-grid"><label class="field">역할<select name="role"><option value="student">학생</option><option value="teacher">교사</option></select></label><label class="field">이름<input name="name" required maxlength="100"></label><label class="field">학교 Google 이메일<input name="email" type="email" required maxlength="90" autocomplete="off"></label><label class="field" data-student-field>학번<input name="studentNumber" inputmode="numeric" pattern="[0-9]{5}" maxlength="5"></label><label class="field" data-student-field>기수<select name="cohort"><option value="">기수 선택</option>${cohorts.map(n=>`<option value="${n}">${n}기</option>`).join('')}</select></label><label class="field">회원 상태<select name="active"><option value="true">활성</option><option value="false">비활성</option></select></label></div><p class="muted">학생 이메일: h + 입학연도 두 자리 + 학번 다섯 자리. 학번 변경 후 이메일은 기존 Google 계정 주소를 유지할 수 있습니다.</p><p class="muted">최초 로그인 후 기존 Google ID의 기록에 연결됩니다. 수정 시 기존 로그인 세션은 종료됩니다. 연결된 Google 계정 자체를 교체하거나 기록을 이전하지 않습니다.</p><p data-member-result role="status" aria-live="polite"></p><div class="actions"><button type="submit" class="btn-primary">저장</button><button type="button" data-member-close>닫기</button></div></form>`;
+    document.body.append(dialog);const form=dialog.querySelector('form'),fields=form.elements;
+    if(member){for(const key of ['role','name','email','studentNumber','cohort'])fields[key].value=member[key]??'';fields.active.value=String(member.active);}
+    let chosen=!!member;fields.cohort.onchange=()=>{chosen=true;};fields.studentNumber.oninput=()=>{if(!chosen){const n=suggestedCohort(fields.studentNumber.value);fields.cohort.value=cohorts.includes(n)?String(n):'';}};
+    const role=()=>dialog.querySelectorAll('[data-student-field]').forEach(label=>{const field=label.querySelector('input,select');label.hidden=fields.role.value!=='student';field.disabled=label.hidden;field.required=!label.hidden;});fields.role.onchange=role;role();
+    dialog.querySelector('[data-member-close]').onclick=()=>{if(!busy)dialog.close();};dialog.addEventListener('cancel',e=>{if(busy)e.preventDefault();});dialog.addEventListener('close',()=>dialog.remove(),{once:true});
+    form.onsubmit=async e=>{e.preventDefault();if(busy)return;const values=Object.fromEntries(new FormData(form));const input={...values,active:values.active==='true',version:member?.version};busy=true;form.querySelectorAll('button').forEach(b=>b.disabled=true);const message=dialog.querySelector('[data-member-result]');message.textContent='저장 중…';try{await api('/api/admin/members'+(member?'/'+member.id:''),{method:member?'PATCH':'POST',body:JSON.stringify(input)});dialog.close();await load();}catch(e){message.textContent=e.message;}finally{busy=false;form.querySelectorAll('button').forEach(b=>b.disabled=false);}};
+    openDialog(dialog,trigger);
+  }
+  function render(target){cancel();root=target;root.innerHTML=`<header class="page-head"><div><p class="eyebrow">PrideDesk</p><h1>회원 관리</h1><p>사전 등록된 활성 학교 계정만 접근할 수 있습니다. 교사는 동일한 관리자 권한을 가집니다.</p></div><button data-new-member class="btn-primary">회원 등록</button></header><div class="filters"><label class="field">검색<input data-member-search placeholder="이름 · 이메일 · 학번" maxlength="100"></label><label class="field">역할<select data-member-role-filter><option value="">전체 역할</option><option value="student">학생</option><option value="teacher">교사</option></select></label><label class="field">기수<select data-member-cohort-filter><option value="">전체 기수</option></select></label></div><details class="panel"><summary>새 기수 등록</summary><form data-cohort-form class="form-grid"><label class="field">기수<input name="number" type="number" min="1" max="999" required></label><button>기수 등록</button><p role="status" data-cohort-result></p></form></details><p class="muted">활성 학생은 로그인 전에도 과제를 배정할 수 있습니다. 최초 Google 로그인 시 배정 과제가 연결되며 기존 제출·편집 기록은 유지됩니다.</p><div data-members-list></div>`;
+    const search=root.querySelector('[data-member-search]');search.value=filters.q;search.oninput=()=>{filters.q=search.value;clearTimeout(timer);controller?.abort();generation++;timer=setTimeout(load,300);};
+    const role=root.querySelector('[data-member-role-filter]');role.value=filters.role;role.onchange=()=>{filters.role=role.value;load();};root.querySelector('[data-member-cohort-filter]').onchange=e=>{filters.cohort=e.target.value;load();};root.querySelector('[data-new-member]').onclick=e=>edit(null,e.currentTarget);
+    root.querySelector('[data-cohort-form]').onsubmit=async e=>{e.preventDefault();if(busy)return;busy=true;const f=e.currentTarget,b=f.querySelector('button');b.disabled=true;try{await api('/api/admin/cohorts',{method:'POST',body:JSON.stringify({number:Number(new FormData(f).get('number'))})});f.querySelector('[data-cohort-result]').textContent='기수를 등록했습니다.';await load();}catch(e){f.querySelector('[data-cohort-result]').textContent=e.message;}finally{busy=false;b.disabled=false;}};
+    return load();
+  }
+  return {render,cancel,isPending:()=>busy};
+}

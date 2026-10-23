@@ -49,6 +49,6 @@ for(const role of ['admin','student'])test(role+' initialization loads only requ
     await expect(page.locator('[data-view=files] .loading-state')).toHaveCount(0);
     fail=false;await page.locator('[data-file-retry]').click();await expect(page.locator('[data-file-operator]')).toBeVisible();
     await page.locator('[data-admin-view=dashboard]').click();await expect(page.locator('[data-view=dashboard] h1')).toHaveText('대시보드');
-    expect(calls).not.toContain('/api/classroom/students');expect(calls).not.toContain('/api/photos');
+    expect(calls).not.toContain('/api/members/roster');expect(calls).not.toContain('/api/photos');
   }
 });

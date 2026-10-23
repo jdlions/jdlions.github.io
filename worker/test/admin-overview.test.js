@@ -1,3 +1,4 @@
+import {memberToken,registerFixture} from './member-fixture.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
@@ -33,7 +34,7 @@ test('student photo summary preserves missing sides and historical grade 3; deta
 test('school number comes from display name, never opaque Google ID',()=>{assert.equal(schoolNumber({name:'31001 졸업생',id:'google'}),'31001');assert.equal(isNewAssignmentEligible({name:'31001 졸업생'}),false);assert.equal(isNewAssignmentEligible({name:'11001 학생',id:'3333333333333333333'}),true);assert.equal(isNewAssignmentEligible({name:'Unknown',id:'31001'}),true);});
 async function auth(t,f,role='admin'){
  t.mock.method(globalThis,'fetch',async url=>{url=String(url);if(url.includes('userProfiles'))return Response.json({id:role});if(url.includes('/teachers/'))return role==='admin'?Response.json({userId:role}):new Response('',{status:404});if(url.endsWith('/students?pageSize=100'))return Response.json({students:[{userId:'g1',profile:{name:{fullName:'11001 Student'}}},{userId:'g3',profile:{name:{fullName:'31001 Alumni'}}}]});return Response.json({userId:role});});
- const env={DB:f.db,SESSION_SECRET:'fixture',NEWSPAPER_CLASSROOM_ID:crypto.randomUUID()};const token=await seal({sub:role,accessToken:'fixture',courseId:env.NEWSPAPER_CLASSROOM_ID,exp:Date.now()+60000},env.SESSION_SECRET);
+ const env={DB:f.db,SESSION_SECRET:'fixture',NEWSPAPER_CLASSROOM_ID:crypto.randomUUID()};await registerFixture(env,'g1','student',{number:'11001',name:'Student'});await registerFixture(env,'g3','student',{number:'31001',name:'Alumni'});const token=await memberToken(env,{sub:role,accessToken:'fixture',courseId:env.NEWSPAPER_CLASSROOM_ID,exp:Date.now()+60000},role);
  return (path,method='GET',body)=>worker.fetch(new Request('https://local.test'+path,{method,headers:{Cookie:SESSION_COOKIE+'='+token,Origin:'https://local.test','X-Editorial-CSRF':'1','Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})}),env);
 }
 test('all new aggregate/detail endpoints reject student role and retain no-store',async t=>{const f=fixture(),send=await auth(t,f,'student');for(const path of ['/api/admin/article-overview','/api/admin/dashboard','/api/admin/photo-students','/api/admin/student-photos?student=other']){const r=await send(path);assert.equal(r.status,403);assert.match(r.headers.get('cache-control'),/no-store/);}f.sql.close();});

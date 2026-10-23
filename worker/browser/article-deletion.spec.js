@@ -7,7 +7,7 @@ async function setup(page,{status='draft',fail=false}={}){
   if(path==='/api/session')data={authenticated:true,user:{role:'admin',name:'Teacher'}};
   else if(path==='/api/native/articles'||path==='/api/admin/article-overview')data=[{id:'a',studentId:'student',titleKo:'고아 기사',status,draftHtml:'초안'},{id:'b',studentId:'other',titleKo:'보존 기사',status:'submitted',draftHtml:'보존'}];
   else if(path==='/api/photos')data=[];
-  else if(path==='/api/classroom/students')data={students:[]};
+  else if(path==='/api/members/roster')data={students:[]};
   else if(path==='/api/assignments')data={campaigns:[],assignments:[]};
   else if(path==='/api/native/articles/a'&&req.method()==='DELETE'){
    calls.push({body:req.postDataJSON(),csrf:req.headers()['x-editorial-csrf']});
@@ -57,7 +57,7 @@ test('feature article keeps delete button after open, editor save, status change
   else if(path==='/api/native/articles'||path==='/api/admin/article-overview')data=deleted?[other]:[feature,other];
   else if(path==='/api/photos')data=[];
   else if(path==='/api/assignments')data={campaigns:[],assignments:[]};
-  else if(path==='/api/classroom/students')data={students:[]};
+  else if(path==='/api/members/roster')data={students:[]};
   else if(path==='/api/native/articles/feature-1/editor'){Object.assign(feature,{editorDraftHtml:req.postDataJSON().contentHtml});data=feature;}
   else if(path==='/api/native/articles/feature-1/status'){feature.status=req.postDataJSON().status;data=feature;}
   else if(path==='/api/native/articles/feature-1'){if(req.method()==='DELETE')deleted=true;data=deleted?{id:feature.id,deleted:true}:feature;}

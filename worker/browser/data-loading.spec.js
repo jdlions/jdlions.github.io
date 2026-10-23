@@ -5,7 +5,7 @@ async function setup(page,role='admin',hold={}){
  await page.route('**/api/**',async route=>{
   const path=new URL(route.request().url()).pathname;calls.push(path);
   if(hold[path])return hold[path](route);
-  const data=path==='/api/session'?{authenticated:true,user:{role,studentId:'s',name:'Test'}}:path==='/api/admin/article-overview'?overviewResponse([article]):path==='/api/native/articles'?[article]:path==='/api/native/articles/a'?{...article,draftHtml:'<p>Full detail</p>',studentFeedback:'Feedback',revisions:[]}:path==='/api/assignments'?{campaigns:[],assignments:[]}:path==='/api/classroom/students'?{students:[{id:'s',name:'Student'}]}:path==='/api/publications'?{issues:[],nextNumber:35}:[];
+  const data=path==='/api/session'?{authenticated:true,user:{role,studentId:'s',name:'Test'}}:path==='/api/admin/article-overview'?overviewResponse([article]):path==='/api/native/articles'?[article]:path==='/api/native/articles/a'?{...article,draftHtml:'<p>Full detail</p>',studentFeedback:'Feedback',revisions:[]}:path==='/api/assignments'?{campaigns:[],assignments:[]}:path==='/api/members/roster'?{students:[{id:'s',name:'Student'}]}:path==='/api/publications'?{issues:[],nextNumber:35}:[];
   await route.fulfill({json:path==='/api/native/articles'&&Array.isArray(data)?pageResponse(data):data});
  });
  await page.goto('/'+role+'/');return calls;
@@ -14,7 +14,7 @@ test('admin first render needs only session and summary; photos/assignments/rost
  const calls=await setup(page);await expect(page.locator('[data-view=dashboard] h1')).toHaveText('대시보드');expect(calls).toEqual(['/api/session','/api/admin/dashboard']);
  await page.locator('[data-admin-view=photos]').click();await expect(page.locator('[data-view=photos] h1')).toHaveText('사진 관리');expect(calls.filter(x=>x==='/api/admin/photo-students')).toHaveLength(1);
  await page.locator('[data-admin-view=articles]').click();await expect(page.locator('[data-open]')).toBeVisible();expect(calls.filter(x=>x==='/api/admin/article-overview')).toHaveLength(1);
- await page.locator('[data-admin-view=assignments]').click();await page.locator('[data-new-assignment]').click();await expect(page.locator('[name=studentId]')).toHaveCount(1);expect(calls.filter(x=>x==='/api/classroom/students')).toHaveLength(1);
+ await page.locator('[data-admin-view=assignments]').click();await page.locator('[data-new-assignment]').click();await expect(page.locator('[name=studentId]')).toHaveCount(1);expect(calls.filter(x=>x==='/api/members/roster')).toHaveLength(1);
 });
 test('student article renders while assignment is pending; late response never replaces editor',async({page})=>{
  let release;const calls=await setup(page,'student',{'/api/assignments':route=>{release=()=>route.fulfill({json:{campaigns:[],assignments:[]}});}});

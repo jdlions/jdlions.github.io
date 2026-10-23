@@ -1,3 +1,5 @@
+import {generateKeyPair,exportJWK,SignJWT} from 'jose';
+import {registerFixture} from './member-fixture.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -94,23 +96,23 @@ test('OAuth state failures return no-store JSON and never exchange a code', asyn
 });
 
 test('OAuth login → callback → session works for both roles without leaking browser redirects to Worker', async t => {
+  const {publicKey,privateKey}=await generateKeyPair('RS256');const jwk={...await exportJWK(publicKey),kid:'test-key',alg:'RS256'};
   for (const role of ['admin', 'student']) {
+    const sub=role==='admin'?'123':'456';const member=await registerFixture(env,sub,role);
     const login = await send('/pridedesk/auth/login?returnTo=https://evil.example');
     assert.equal(login.status, 302);
     const oauth = new URL(login.headers.get('location'));
     assert.equal(oauth.searchParams.get('code_challenge_method'), 'S256');
     const stateCookie = login.headers.get('set-cookie').split(';')[0];
     const saved = await unseal(decodeURIComponent(stateCookie.split('=')[1]), env.SESSION_SECRET);
+    const idToken=await new SignJWT({email:member.email,email_verified:true,hd:'joongdong.hs.kr',nonce:saved.nonce}).setProtectedHeader({alg:'RS256',kid:'test-key'}).setSubject(sub).setIssuer('https://accounts.google.com').setAudience(env.GOOGLE_CLIENT_ID).setIssuedAt().setExpirationTime('5m').sign(privateKey);
     t.mock.method(globalThis, 'fetch', async (url, init) => {
+      if(String(url)==='https://www.googleapis.com/oauth2/v3/certs')return Response.json({keys:[jwk]});
       if (url === 'https://oauth2.googleapis.com/token') {
         assert.equal(init.body.get('redirect_uri'), `${frontend}/auth/callback`);
         assert.equal(init.body.get('code_verifier'), saved.verifier);
-        return Response.json({ access_token: 'test-token', expires_in: 3600 });
+        return Response.json({ access_token: 'test-token', expires_in: 3600,token_type:'Bearer',id_token:idToken });
       }
-      if (url.endsWith('/userinfo')) return Response.json({ sub: `user-${role}`, name: role, email: 'test@example.com' });
-      if (url.endsWith('/userProfiles/me')) return Response.json({ id: `user-${role}` });
-      if (url.includes('/teachers/')) return role === 'admin' ? Response.json({ userId: `user-${role}` }) : new Response(null, { status: 404 });
-      if (url.includes('/students/')) return Response.json({ userId: `user-${role}` });
       throw new Error(`Unexpected upstream ${url}`);
     });
     const callback = await send(`/pridedesk/auth/callback?state=${oauth.searchParams.get('state')}&code=test`, { headers: { Cookie: stateCookie } });

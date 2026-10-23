@@ -11,7 +11,7 @@ async function setup(page,role='admin',{pickerReady,queue=true}={}){
     else if(path==='/api/native/articles'||path==='/api/admin/article-overview'){if(new URL(req.url()).searchParams.get('picker')==='1'&&pickerReady)await pickerReady;data=[article];}
     else if(path==='/api/assignments')data={campaigns:[],assignments:[]};
     else if(path==='/api/photos')data=[];
-    else if(path==='/api/classroom/students')data={students:[]};
+    else if(path==='/api/members/roster')data={students:[]};
     else if(path==='/api/photos/upload'){uploads++;await new Promise(r=>releaseUpload=r);if(failUpload)return route.fulfill({status:500,json:{error:{message:'Upload failed'}}});data={id:'p1',filename:'photo.png'};}
     else if(path.endsWith('/editor')){if(failSave)return route.fulfill({status:500,json:{error:{message:'Save failed'}}});const input=req.postDataJSON();Object.assign(article,{titleKo:input.titleKo,editorDraftHtml:input.contentHtml,studentFeedback:input.studentFeedback});data=article;}
     else if(path.endsWith('/status')){article.status=req.postDataJSON().status;data=article;}

@@ -5,6 +5,14 @@ public newspaper stays on GitHub Pages. Shared UI source remains in the existing
 root folders; `build.mjs` changes internal `/editorial/` navigation to `/` in the
 Vercel output only. Both builds share `scripts/editorial-files.mjs`.
 
+## Membership cutover
+
+Google OAuth now uses pre-registered active D1 members, not Classroom roles.
+See [the required manual migration and initial-registration plan](../docs/d1-membership-migration.md) before deploying this change.
+The original proxy-only setup instructions below describe the historical rollout;
+0009 membership requires its own approved migration. NEWSPAPER_CLASSROOM_ID is
+no longer read by the Worker and may remain unused during the transition.
+
 ## Routing and authentication
 
 | Browser request | Vercel external rewrite destination |

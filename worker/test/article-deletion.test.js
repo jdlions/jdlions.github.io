@@ -1,3 +1,4 @@
+import {memberToken,registerFixture} from './member-fixture.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
@@ -61,7 +62,7 @@ test('HTTP admin/confirmation/CSRF/origin enforcement and Drive preservation',as
  const calls=[];let student=false;
  globalThis.fetch=async url=>{calls.push(String(url));return student&&String(url).includes('/teachers/')?new Response('{}',{status:404}):new Response(JSON.stringify({id:'person',userId:'person'}));};
  try{
-  const cookie=async sub=>SESSION_COOKIE+'='+await seal({sub,courseId:'test',exp:Date.now()+60000,accessToken:'test'},env.SESSION_SECRET);
+  const cookie=async sub=>SESSION_COOKIE+'='+await memberToken(env,{sub,courseId:'test',exp:Date.now()+60000,accessToken:'test'},student?'student':'admin');
   const headers={Origin:'https://worker.example','X-Editorial-CSRF':'1',Cookie:await cookie('article-delete-admin'),'Content-Type':'application/json'};
   const send=(confirmation='삭제',h=headers,id=f.article.id)=>worker.fetch(new Request('https://worker.example/api/native/articles/'+id,{method:'DELETE',headers:h,body:JSON.stringify({confirmation})}),env);
   assert.equal((await send('삭제',{...headers,Cookie:''})).status,401);

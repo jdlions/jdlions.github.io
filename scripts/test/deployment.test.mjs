@@ -22,8 +22,12 @@ test('only unapplied, exact reviewed migration hashes are eligible',()=>{
 test('reviewed 0008 matches actual SQL; older pending migrations require manual review',async()=>{
   const directory=new URL('../../worker/migrations/',import.meta.url),files=await Promise.all((await readdir(directory)).sort().map(async name=>({name,sql:await readFile(new URL(name,directory),'utf8')})));
   const approved=JSON.parse(await readFile(new URL('../approved-migrations.json',import.meta.url),'utf8'));
-  assert.deepEqual(migrationPlan(files,files.slice(0,-1).map(f=>f.name),approved),['0008_assignment_lengths.sql']);
+  assert.deepEqual(migrationPlan(files,files.filter(f=>f.name!=='0008_assignment_lengths.sql').map(f=>f.name),approved),['0008_assignment_lengths.sql']);
   assert.throws(()=>migrationPlan(files,[],approved),/manual_review/);
+  assert.throws(()=>migrationPlan(files,files.filter(f=>f.name!=='0009_members.sql').map(f=>f.name),approved),/manual_review/);
+  assert.equal(Object.hasOwn(approved,'0009_members.sql'),false);
+  assert.throws(()=>migrationPlan(files,files.filter(f=>f.name!=='0010_member_assignment_targets.sql').map(f=>f.name),approved),/manual_review/);
+  assert.equal(Object.hasOwn(approved,'0010_member_assignment_targets.sql'),false);
 });
 test('destructive/backfill/constraint migrations stop even with a matching approved digest',()=>{
   for(const sql of ['DELETE FROM articles;','DROP TABLE articles;','UPDATE articles SET status=\'draft\';','ALTER TABLE articles ADD COLUMN x TEXT NOT NULL;','ALTER TABLE articles ADD COLUMN x TEXT DEFAULT \'new\';','CREATE TRIGGER cleanup AFTER INSERT ON x BEGIN DELETE FROM articles; END;','CREATE TABLE copy AS SELECT * FROM articles;']){
@@ -90,7 +94,7 @@ test('real adapter applies pending 0008 then deploys Worker and creates exact-SH
   const names=(await readdir(new URL('../../worker/migrations/',import.meta.url))).sort(),calls=[];let applied=false,workerReady=false,frontendReady=false,buildReads=0;
   const request=async(url,options={})=>{const path=new URL(url).pathname;calls.push({path,method:options.method,body:options.body&&JSON.parse(options.body)});
     if(path.includes('/git/ref/'))return Response.json({object:{sha:commit}});
-    if(path.includes('/d1/database/'))return Response.json({success:true,result:[{results:(applied?names:names.slice(0,-1)).map(name=>({name}))}]});
+    if(path.includes('/d1/database/'))return Response.json({success:true,result:[{results:(applied?names:names.filter(name=>name!=='0008_assignment_lengths.sql')).map(name=>({name}))}]});
     if(path.endsWith('/workers/scripts/lions-pride-editorial-api/deployments'))return Response.json({success:true,result:{deployments:[{id:'worker',created_on:'2026-10-08',versions:[{version_id:'version',percentage:100}]}]}});
     if(path.endsWith('/versions/version'))return Response.json({success:true,result:{annotations:{'workers/tag':workerReady?`git-${commit}`:'old-version'}}});
     if(path.includes('/v9/projects/'))return Response.json({name:'pridesk',rootDirectory:'pridedesk',link:{type:'github',org:'jdlions',repo:'jdlions.github.io',repoId:123}});

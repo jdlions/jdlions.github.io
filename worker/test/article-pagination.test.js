@@ -1,3 +1,4 @@
+import {memberToken,registerFixture} from './member-fixture.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
@@ -10,7 +11,7 @@ import {seal,SESSION_COOKIE} from '../src/security.js';
 function fixture(n=0){
  const sql=new DatabaseSync(':memory:');sql.exec('PRAGMA foreign_keys=ON');
  for(const file of readdirSync(new URL('../migrations/',import.meta.url)).filter(x=>x.endsWith('.sql')).sort())sql.exec(readFileSync(new URL('../migrations/'+file,import.meta.url),'utf8'));
- const calls=[];const db={prepare(query){let args=[];const stmt={bind(...values){args=values;return stmt;},async all(){calls.push({query,args});return {results:sql.prepare(query).all(...args)};}};return stmt;}};
+ const calls=[];const db={prepare(query){let args=[];const stmt={bind(...values){args=values;return stmt;},async first(){return sql.prepare(query).get(...args)??null;},async run(){return sql.prepare(query).run(...args);},async all(){calls.push({query,args});return {results:sql.prepare(query).all(...args)};}};return stmt;}};
  const insert=sql.prepare('INSERT INTO articles(id,student_id,article_type,title_ko,title_en,status,draft_html,editor_draft_html,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)');
  function add(id,student='s',time='2026-01-01T00:00:00.000Z',status='draft',title='Title '+id){insert.run(id,student,'school',title,'English',status,'<p>'+('Synthetic words '.repeat(800))+'</p>','PRIVATE EDITOR','2026-01-01T00:00:00.000Z',time);}
  for(let i=0;i<n;i++)add(String(i).padStart(4,'0'));
@@ -64,7 +65,7 @@ test('HTTP student queries and forged cursor remain student-scoped and no-store'
  const f=fixture(21);f.add('other','outsider');
  t.mock.method(globalThis,'fetch',async url=>Response.json(String(url).includes('userProfiles')?{id:'s'}:String(url).includes('/teachers/')?{}:{userId:'s'},{status:String(url).includes('/teachers/')?404:200}));
  const env={DB:f.db,SESSION_SECRET:'local-test',NEWSPAPER_CLASSROOM_ID:'pagination'};
- const token=await seal({sub:'s',studentId:'s',courseId:'pagination',accessToken:'test',exp:Date.now()+60000},env.SESSION_SECRET);
+ const token=await memberToken(env,{sub:'s',studentId:'s',courseId:'pagination',accessToken:'test',exp:Date.now()+60000},'student');
  const request=params=>worker.fetch(new Request('https://local.test/api/native/articles?'+new URLSearchParams({page:'1',...params}),{headers:{Cookie:SESSION_COOKIE+'='+token}}),env);
  const response=await request({studentId:'outsider'}),body=await response.json();assert.equal(response.status,200);assert.match(response.headers.get('cache-control'),/no-store/);assert(body.items.every(x=>x.studentId==='s'));assert.doesNotMatch(JSON.stringify(body),/internalNote|editorDraftHtml|draftHtml|PRIVATE EDITOR/);
  for(const params of [{q:'Title'},{status:'draft',author:'s'},{picker:'1'},{cursor:body.nextCursor,stats:'0'}]){const r=await request(params);assert.equal(r.status,200);const data=await r.json();assert(data.items.every(x=>x.studentId==='s'));assert.doesNotMatch(JSON.stringify(data),/internalNote|editorDraftHtml|draftHtml|PRIVATE EDITOR/);}

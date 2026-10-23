@@ -8,7 +8,7 @@ async function setup(page,{articles=2,failSummary=false,failDelete=false}={}){
   if(path==='/api/session')data={authenticated:true,user:{role:'admin',name:'Teacher'}};
   else if(path==='/api/admin/dashboard')data={assignment:{campaign:null,progress:[]},editorial:null,errors:{}};
   else if(path==='/api/native/articles'||path==='/api/photos')data=[];
-  else if(path==='/api/classroom/students')data={students:[]};
+  else if(path==='/api/members/roster')data={students:[]};
   else if(path==='/api/assignments')data={campaigns:[{id:'c1',name:'삭제 테스트',slots:[],status:'active'}],assignments:[]};
   else if(path.endsWith('/deletion-summary')){
    if(failSummary)return route.fulfill({status:500,json:{error:{message:'조회 실패'}}});

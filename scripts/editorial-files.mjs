@@ -23,6 +23,7 @@ export const editorialFiles = [
   'assets/css/editorial-login.css',
   'assets/js/config.js',
   'assets/js/admin/admin-app.js',
+  'assets/js/admin/members.js',
   'assets/js/admin/student-overview.js',
   'assets/js/shared/student-identity.js',
   'assets/js/admin/issue-publishing.js',

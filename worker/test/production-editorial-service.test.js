@@ -90,11 +90,11 @@ test('article detail is fetched once on selection and then cached', async () => 
 
 test('admin loads roster for targeting but never requests Classroom coursework', async () => {
   const calls=[];
-  const request=async path=>{calls.push(path);if(path==='/api/native/articles?summary=1&page=1&limit=20')return {items:[]};if(path==='/api/photos')return [];if(path==='/api/assignments')return {campaigns:[],assignments:[]};if(path==='/api/classroom/students')return {students:[{id:'student-1',name:'Kim Mina'}]};throw new Error(`Unexpected request: ${path}`);};
+  const request=async path=>{calls.push(path);if(path==='/api/native/articles?summary=1&page=1&limit=20')return {items:[]};if(path==='/api/photos')return [];if(path==='/api/assignments')return {campaigns:[],assignments:[]};if(path==='/api/members/roster')return {students:[{id:'student-1',name:'Kim Mina'}]};throw new Error(`Unexpected request: ${path}`);};
   const service=await ProductionEditorialService.create({role:'admin'},request);
-  assert.equal(calls.includes('/api/classroom/students'),false);
+  assert.equal(calls.includes('/api/members/roster'),false);
   await service.ensureResource('students');
-  assert.equal(calls.includes('/api/classroom/students'),true);
+  assert.equal(calls.includes('/api/members/roster'),true);
   assert.deepEqual(calls.filter(path=>/issues|coursework|studentSubmissions|docs/i.test(path)),[]);
 });
 
@@ -103,7 +103,7 @@ test('student startup uses only the signed-in student name and never requests ro
   const request=async path=>{calls.push(path);if(path==='/api/native/articles?summary=1&page=1&limit=20')return {items:[]};if(path==='/api/photos')return [];if(path==='/api/assignments')return {campaigns:[],assignments:[]};throw new Error(`Unexpected request: ${path}`);};
   const service=await ProductionEditorialService.create({role:'student',studentId:'student-1',name:'Kim Mina'},request);
   assert.deepEqual(service.getState().students,[{id:'student-1',name:'Kim Mina'}]);
-  assert.equal(calls.includes('/api/classroom/students'),false);
+  assert.equal(calls.includes('/api/members/roster'),false);
   assert.deepEqual(calls.filter(path=>/issues|coursework|studentSubmissions|docs/i.test(path)),[]);
 });
 
@@ -111,13 +111,13 @@ test('OAuth login scopes exclude coursework, broad Drive read, and Google Docs',
   const source=await readFile(new URL('../src/index.js',import.meta.url),'utf8');
   const scopeBlock=source.match(/const scopes = \[([\s\S]*?)\];/)[1];
   assert.doesNotMatch(scopeBlock,/coursework|drive\.readonly|documents\.readonly/);
-  assert.match(scopeBlock,/classroom\.rosters\.readonly/);
+  assert.doesNotMatch(scopeBlock,/classroom/);
   assert.match(scopeBlock,/drive\.file/);
 });
 
 test('login copy consistently identifies the English newspaper club', async () => {
   const html=await readFile(new URL('../../login/index.html',import.meta.url),'utf8');
-  assert.match(html,/영자신문부 Classroom 구성원/);
+  assert.match(html,/등록된 활성 회원/);
   assert.doesNotMatch(html,/(^|[^영자])신문부 Classroom 구성원/);
 });
 

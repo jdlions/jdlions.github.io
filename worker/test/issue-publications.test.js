@@ -1,3 +1,4 @@
+import {memberToken,registerFixture} from './member-fixture.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
@@ -106,7 +107,7 @@ test('API enforces sessions, membership, CSRF, origin, key and confirmation; pub
     if (String(url).includes('/teachers/') && student) return new Response('', { status: 404 });
     return Response.json({ userId: student ? 'student' : 'teacher' });
   };
-  const cookie = async sub => `${SESSION_COOKIE}=${await seal({ sub, courseId: env.NEWSPAPER_CLASSROOM_ID, accessToken: 'test', exp: Date.now() + 60000 }, env.SESSION_SECRET)}`;
+  const cookie = async sub => `${SESSION_COOKIE}=${await memberToken(env,{ sub, courseId: env.NEWSPAPER_CLASSROOM_ID, accessToken: 'test', exp: Date.now() + 60000 },student?'student':'admin')}`;
   try {
     const headers = { Cookie: await cookie('publication-admin'), Origin: 'https://worker.example', 'X-Editorial-CSRF': '1', 'Content-Type': 'application/json', 'Idempotency-Key': key };
     const send = (body = input(), changes = {}, path = '/api/publications') => worker.fetch(new Request('https://worker.example' + path, { method: 'POST', headers: { ...headers, ...changes }, body: JSON.stringify(body) }), env);

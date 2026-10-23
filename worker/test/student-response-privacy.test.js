@@ -1,3 +1,4 @@
+import {memberToken,registerFixture} from './member-fixture.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../src/index.js';
@@ -23,7 +24,7 @@ for(const [label,method,path] of cases)test('student privacy: '+label,async t=>{
   t.mock.method(proto,'listRevisions',async()=>[{id:'revision',contentHtml:'<p>Revision</p>'}]);
   t.mock.method(proto,'getAssignmentInstance',async()=>({id:'slot',student_id:'student',article_id:label==='open new assignment'?null:'article',campaign_status:'active'}));
   const env={DB:{},SESSION_SECRET:'local-test-only',NEWSPAPER_CLASSROOM_ID:label};
-  const token=await seal({sub:'student',studentId:'student',role:'student',courseId:label,accessToken:'test',exp:Date.now()+60000},env.SESSION_SECRET);
+  const token=await memberToken(env,{sub:'student',studentId:'student',role:'student',courseId:label,accessToken:'test',exp:Date.now()+60000},'student');
   const headers={Cookie:SESSION_COOKIE+'='+token,Origin:'https://local.test','X-Editorial-CSRF':'1'};
   let body;
   if(label==='import'){body=new FormData();body.append('file',new File(['Imported text'],'article.txt',{type:'text/plain'}));}
@@ -42,7 +43,7 @@ test('admin retains internal notes on detail, editor save and status responses',
   for(const name of ['getNativeArticle','saveEditorDraft','setNativeStatus'])t.mock.method(D1EditorialRepository.prototype,name,async()=>({...article}));
   t.mock.method(D1EditorialRepository.prototype,'listRevisions',async()=>[]);
   const env={DB:{},SESSION_SECRET:'local-test-only',NEWSPAPER_CLASSROOM_ID:'admin-privacy'};
-  const token=await seal({sub:'teacher',role:'admin',courseId:env.NEWSPAPER_CLASSROOM_ID,accessToken:'test',exp:Date.now()+60000},env.SESSION_SECRET);
+  const token=await memberToken(env,{sub:'teacher',role:'admin',courseId:env.NEWSPAPER_CLASSROOM_ID,accessToken:'test',exp:Date.now()+60000},'admin');
   for(const [method,suffix] of [['GET',''],['PATCH','/editor'],['PATCH','/status']]){
     const response=await worker.fetch(new Request('https://local.test/api/native/articles/article'+suffix,{method,headers:{Cookie:SESSION_COOKIE+'='+token,Origin:'https://local.test','X-Editorial-CSRF':'1','Content-Type':'application/json'},body:method==='GET'?undefined:JSON.stringify({status:'approved',internalNote:'PRIVATE'})}),env);
     assert.equal(response.status,200);assert.equal((await response.json()).internalNote,'PRIVATE');

@@ -19,7 +19,7 @@ async function setup(page,role,width){
  else if(p.startsWith('/api/assignments/instances/'))data=article;
  else if(p.endsWith('/submit')){article.status='submitted';data=article;}
  else if(p.endsWith('/editor')){article.editorDraftHtml=req.postDataJSON().contentHtml;data=article;}
- else if(p==='/api/classroom/students')data={students:students.map(s=>({id:s.studentId,name:s.name}))};
+ else if(p==='/api/members/roster')data={students:students.map(s=>({id:s.studentId,name:s.name}))};
  else if(p==='/api/editorial-files/projects')data=[{id:'2026_Winter',year:2026,season:'Winter'}];
  else if(p.endsWith('/editors'))data={editors:[{role:'chief',name:'편집장'},{role:'deputy',name:'부편집장'}],operatorRole:''};
  else if(p.endsWith('/settings'))data={editors:[{role:'chief',name:'편집장'},{role:'deputy',name:'부편집장'}],channelEnabled:true,channelId:'C12345678'};

@@ -1,3 +1,4 @@
+import {memberToken,registerFixture} from './member-fixture.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
@@ -45,7 +46,7 @@ function fixture(){
 }
 async function auth(t,f,role='admin'){
  t.mock.method(globalThis,'fetch',async url=>{url=String(url);if(url.includes('userProfiles'))return Response.json({id:role});if(url.includes('/teachers/'))return role==='admin'?Response.json({userId:role}):new Response('',{status:404});if(url.endsWith('/students?pageSize=100'))return Response.json({students:[{userId:'g1',profile:{name:{fullName:'11001 Student'}}},{userId:'g3',profile:{name:{fullName:'31001 Alumni'}}}]});return Response.json({userId:role});});
- const env={DB:f.db,SESSION_SECRET:'fixture',NEWSPAPER_CLASSROOM_ID:crypto.randomUUID()};const token=await seal({sub:role,accessToken:'fixture',courseId:env.NEWSPAPER_CLASSROOM_ID,exp:Date.now()+60000},env.SESSION_SECRET);
+ const env={DB:f.db,SESSION_SECRET:'fixture',NEWSPAPER_CLASSROOM_ID:crypto.randomUUID()};const token=await memberToken(env,{sub:role,accessToken:'fixture',courseId:env.NEWSPAPER_CLASSROOM_ID,exp:Date.now()+60000},role);
  return (path,method='GET',body,extraHeaders={})=>worker.fetch(new Request('https://local.test'+path,{method,headers:{Cookie:SESSION_COOKIE+'='+token,Origin:'https://local.test','X-Editorial-CSRF':'1','Content-Type':'application/json',...extraHeaders},...(body?{body:JSON.stringify(body)}:{})}),env);
 }
 
