@@ -1,3 +1,4 @@
+import {currentCohorts,isActivityEligible} from '../../assets/js/shared/student-identity.js';
 import {memberRecipient,resolveMemberAssignments} from './member-assignments.js';
 const failure=(message,status=403,code='membership_required')=>Object.assign(new Error(message),{status,code});
 export const MEMBERSHIP_VERSION=1;
@@ -38,9 +39,9 @@ export class Members {
     }else if(row.role==='student')await this.db.batch(resolveMemberAssignments(this.db,row.id));
     return {memberId:row.id,authVersion:row.auth_version,membershipVersion:MEMBERSHIP_VERSION,role:row.role==='teacher'?'admin':'student',studentId:row.role==='student'?identity.sub:null,name:row.name,email:row.email};
   }
-  async roster(){
+  async roster({forAssignment=false}={}){
     const {results}=await this.db.prepare("SELECT id,google_sub,student_number,name,cohort FROM members WHERE role='student' AND active=1 ORDER BY student_number,id").all();
-    return results.map(r=>({id:r.google_sub||memberRecipient(r.id),memberId:r.id,name:`${r.student_number} ${r.name}`,studentNumber:r.student_number,cohort:r.cohort}));
+    return results.filter(r=>!forAssignment||isActivityEligible(r)).map(r=>({id:r.google_sub||memberRecipient(r.id),memberId:r.id,name:`${r.student_number} ${r.name}`,studentNumber:r.student_number,cohort:r.cohort}));
   }
   async list(params){
     const q=String(params.get('q')||'').trim();if(q.length>100)throw failure('검색어는 100자 이하로 입력해 주세요.',400,'invalid_member_search');
@@ -48,17 +49,21 @@ export class Members {
     if((role&&!['teacher','student'].includes(role))||(cohort&&!/^\d{1,3}$/.test(cohort)))throw failure('회원 필터를 확인해 주세요.',400,'invalid_member_search');
     const like='%'+q.replace(/[!%_]/g,'!$&')+'%';
     const {results}=await this.db.prepare("SELECT * FROM members WHERE (?='' OR role=?) AND (?='' OR cohort=?) AND (name LIKE ? ESCAPE '!' OR email LIKE ? ESCAPE '!' OR student_number LIKE ? ESCAPE '!') ORDER BY role DESC,cohort DESC,student_number,name,id").bind(role,role,cohort,cohort,like,like,like).all();
-    return {members:results.map(mapped),cohorts:(await this.db.prepare('SELECT number FROM member_cohorts ORDER BY number DESC').all()).results.map(r=>r.number)};
+    const activity=params.get('activity')||'current';
+    if(!['current','all'].includes(activity))throw failure('활동 범위를 확인해 주세요.',400,'invalid_member_search');
+    const stored=(await this.db.prepare('SELECT number FROM member_cohorts ORDER BY number DESC').all()).results.map(r=>r.number);
+    return {members:results.filter(r=>activity==='all'||isActivityEligible(r)).map(mapped),cohorts:[...new Set([...stored,...currentCohorts()])].sort((a,b)=>b-a)};
   }
   async save(id,input,actor){
     const v=validateMember(input),now=new Date().toISOString();
-    if(v.cohort&&!await this.db.prepare('SELECT number FROM member_cohorts WHERE number=?').bind(v.cohort).first())throw failure('기수를 먼저 등록해 주세요.',400,'unknown_cohort');
+    if(v.cohort&&!currentCohorts().includes(v.cohort)&&!await this.db.prepare('SELECT number FROM member_cohorts WHERE number=?').bind(v.cohort).first())throw failure('기수를 먼저 등록해 주세요.',400,'unknown_cohort');
     if(id){
       const old=await this.get(id);if(!old)throw failure('회원을 찾을 수 없습니다.',404,'member_not_found');
       if(!Number.isInteger(input.version)||input.version!==old.auth_version)throw failure('다른 관리자가 수정했습니다. 새로고침해 주세요.',409,'member_conflict');
       if(id===actor.memberId&&(!v.active||v.role!=='teacher'||v.email!==old.email))throw failure('현재 로그인한 교사 계정의 접근 권한은 직접 해제할 수 없습니다.',409,'self_lockout_blocked');
     }
     const target=id||crypto.randomUUID();
+    if(v.cohort&&currentCohorts().includes(v.cohort))await this.cohort({number:v.cohort});
     try{
       if(id){
         const result=await this.db.prepare('UPDATE members SET name=?,email=?,role=?,student_number=?,cohort=?,active=?,auth_version=auth_version+1,updated_at=?,changed_by=? WHERE id=? AND auth_version=?').bind(v.name,v.email,v.role,v.number,v.cohort,v.active,now,actor.memberId,id,input.version).run();
