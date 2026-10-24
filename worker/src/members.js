@@ -21,12 +21,13 @@ export class Members {
     if(value.membershipVersion!==MEMBERSHIP_VERSION||!value.memberId||!value.sub)throw failure('다시 로그인해 주세요.',401,'authentication_required');
     const row=await this.get(value.memberId);
     if(!row||!row.active||row.google_sub!==value.sub||row.auth_version!==value.authVersion)throw failure('회원 상태가 변경되었습니다. 다시 로그인하거나 관리자에게 문의해 주세요.',401,'authentication_required');
-    return {...value,name:row.name,email:row.email,role:row.role==='teacher'?'admin':'student',studentId:row.role==='student'?row.google_sub:null};
+    return {...value,name:row.name,email:row.email,studentNumber:row.student_number,cohort:row.cohort,role:row.role==='teacher'?'admin':'student',studentId:row.role==='student'?row.google_sub:null};
   }
-  async login(identity){
+  async login(identity,{allowUnknown=false}={}){
     // The caller must first verify Google's signature/audience/nonce/hd/email.
     const email=identity.email.toLowerCase();
     let row=await this.db.prepare('SELECT * FROM members WHERE google_sub=? OR email=? ORDER BY id').bind(identity.sub,email).all();
+    if(!row.results.length&&allowUnknown)return null;
     if(row.results.length!==1)throw failure('등록된 활성 회원만 이용할 수 있습니다. 관리자에게 문의해 주세요.');
     row=row.results[0];
     if(!row.active||row.email!==email||(row.google_sub&&row.google_sub!==identity.sub))throw failure('등록 정보와 Google 계정이 일치하지 않습니다. 관리자에게 문의해 주세요.');
@@ -48,7 +49,9 @@ export class Members {
     const role=params.get('role')||'',cohort=params.get('cohort')||'';
     if((role&&!['teacher','student'].includes(role))||(cohort&&!/^\d{1,3}$/.test(cohort)))throw failure('회원 필터를 확인해 주세요.',400,'invalid_member_search');
     const like='%'+q.replace(/[!%_]/g,'!$&')+'%';
-    const {results}=await this.db.prepare("SELECT * FROM members WHERE (?='' OR role=?) AND (?='' OR cohort=?) AND (name LIKE ? ESCAPE '!' OR email LIKE ? ESCAPE '!' OR student_number LIKE ? ESCAPE '!') ORDER BY role DESC,cohort DESC,student_number,name,id").bind(role,role,cohort,cohort,like,like,like).all();
+    const sort=params.get('sort')||'default';if(!['default','recent'].includes(sort))throw failure('정렬을 확인해 주세요.',400,'invalid_member_search');
+    const order=sort==='recent'?'created_at DESC,id':'role DESC,cohort DESC,student_number,name,id';
+    const {results}=await this.db.prepare("SELECT * FROM members WHERE (?='' OR role=?) AND (?='' OR cohort=?) AND (name LIKE ? ESCAPE '!' OR email LIKE ? ESCAPE '!' OR student_number LIKE ? ESCAPE '!') ORDER BY "+order).bind(role,role,cohort,cohort,like,like,like).all();
     const activity=params.get('activity')||'current';
     if(!['current','all'].includes(activity))throw failure('활동 범위를 확인해 주세요.',400,'invalid_member_search');
     const stored=(await this.db.prepare('SELECT number FROM member_cohorts ORDER BY number DESC').all()).results.map(r=>r.number);

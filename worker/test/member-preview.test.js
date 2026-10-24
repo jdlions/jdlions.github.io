@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 import worker from '../src/index.js';
 
 test('preview writes and unrelated features fail before accessing any database',async()=>{
- const env={PREVIEW_MODE:'member-search',DB:{prepare(){throw Error('must not access DB');}}};
+ const env={PREVIEW_MODE:'member-registration',DB:{prepare(){throw Error('must not access DB');}}};
  for(const [method,path] of [['POST','/api/admin/members'],['PATCH','/api/admin/members/id'],['POST','/api/assignments'],['POST','/api/editorial-files/projects'],['GET','/api/photos'],['GET','/api/public/issues']]){
   const r=await worker.fetch(new Request('https://test.invalid'+path,{method}),env);
   assert.equal(r.status,403);assert.equal((await r.json()).error.code,'preview_read_only');assert.match(r.headers.get('cache-control'),/no-store/);

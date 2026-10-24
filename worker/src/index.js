@@ -1,4 +1,4 @@
-import {searchSchoolPeople,searchScopes} from './member-search.js';
+import {Signup,SIGNUP_COOKIE,profileSuggestion} from './signup.js';
 import {memberRecipient} from './member-assignments.js';
 import {Members} from './members.js';
 import {verifyGoogleIdentity} from './google-identity.js';
@@ -82,13 +82,13 @@ function textToParagraphs(value) {
 }
 
 
-async function login(request, env, searchSource=null, searchMember=null) {
+async function login(request, env) {
   requireConfig(env);
   if (new URL(request.url).origin !== env.EDITORIAL_ORIGIN) throw Object.assign(new Error('Editorial origin is misconfigured.'), { status: 503, code: 'configuration_error' });
   const state = randomToken(), verifier = randomToken(48), nonce = randomToken();
   const challenge = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
-  const stateValue = await seal({ state, verifier, nonce, searchSource, searchMember, exp:Date.now()+600000, origin: env.EDITORIAL_ORIGIN }, env.SESSION_SECRET);
-  const query = new URLSearchParams({ client_id: env.GOOGLE_CLIENT_ID, redirect_uri: env.OAUTH_REDIRECT_URI, response_type: 'code', scope: [...scopes,...(searchSource?[searchScopes[searchSource]]:[])].join(' '), state, nonce, code_challenge: challenge, code_challenge_method: 'S256', access_type: 'online', include_granted_scopes: 'true' });
+  const stateValue = await seal({ state, verifier, nonce, exp:Date.now()+600000, origin: env.EDITORIAL_ORIGIN }, env.SESSION_SECRET);
+  const query = new URLSearchParams({ client_id: env.GOOGLE_CLIENT_ID, redirect_uri: env.OAUTH_REDIRECT_URI, response_type: 'code', scope: scopes.join(' '), state, nonce, code_challenge: challenge, code_challenge_method: 'S256', access_type: 'online' });
   return new Response(null, { status: 302, headers: { Location: `https://accounts.google.com/o/oauth2/v2/auth?${query}`, 'Set-Cookie': setCookie(STATE_COOKIE, stateValue, 600), 'Cache-Control': 'no-store' } });
 }
 
@@ -102,12 +102,27 @@ async function callback(request, env) {
   const code = url.searchParams.get('code'); if (!code) throw Object.assign(new Error('OAuth authorization code is missing.'), { status: 400, code: 'oauth_code_missing' });
   const tokens = await exchangeCode(code, env, saved.verifier);
   const identity=await verifyGoogleIdentity(tokens,env.GOOGLE_CLIENT_ID,saved.nonce);
-  if(saved.searchSource){const existing=await session(request,env);requireAdmin(existing);if(existing.memberId!==saved.searchMember||existing.sub!==identity.sub)throw Object.assign(new Error('동일한 관리자 계정으로 연결해 주세요.'),{status:403,code:'search_account_mismatch'});}
-  if(env.PREVIEW_MODE==='member-search'&&identity.email!==env.PREVIEW_ADMIN_EMAIL)throw Object.assign(new Error('테스트 관리자만 접근할 수 있습니다.'),{status:403,code:'preview_admin_only'});
-  const membership=await new Members(env.DB).login(identity);
+  if(env.PREVIEW_MODE&&![env.PREVIEW_ADMIN_EMAIL,env.PREVIEW_STUDENT_EMAIL].filter(Boolean).includes(identity.email))throw Object.assign(new Error('사전 지정한 테스트 계정만 접근할 수 있습니다.'),{status:403,code:'preview_admin_only'});
+  const membership=await new Members(env.DB).login(identity,{allowUnknown:true});
   const expires = Math.min(Date.now() + SESSION_SECONDS * 1000, Date.now() + Number(tokens.expires_in || SESSION_SECONDS) * 1000);
-  const value = await seal({sub:identity.sub,...membership,accessToken:tokens.access_token,searchSource:saved.searchSource&&String(tokens.scope||'').split(' ').includes(searchScopes[saved.searchSource])?saved.searchSource:null,exp:expires},env.SESSION_SECRET);
-  return new Response(null, { status: 302, headers: [['Location', callbackRedirect(url, membership.role, env.PRIDEDESK_REQUEST)+(saved.searchSource?'#view=members':'')], ['Set-Cookie', setCookie(SESSION_COOKIE, value, SESSION_SECONDS)], ['Set-Cookie', clearCookie(STATE_COOKIE)], ['Cache-Control','no-store']] });
+  if(!membership){
+    const pending=await seal({kind:'signup',identity,accessToken:tokens.access_token,tokenExpiresAt:expires,exp:Math.min(expires,Date.now()+600000)},env.SESSION_SECRET);
+    return new Response(null,{status:302,headers:[['Location',`${url.origin}${env.PRIDEDESK_REQUEST?'':'/editorial'}/signup/`],['Set-Cookie',setCookie(SIGNUP_COOKIE,pending,600)],['Set-Cookie',clearCookie(SESSION_COOKIE)],['Set-Cookie',clearCookie(STATE_COOKIE)],['Cache-Control','private, no-store']]});
+  }
+  return memberSession(identity,membership,tokens.access_token,expires,callbackRedirect(url,membership.role,env.PRIDEDESK_REQUEST),env);
+}
+
+async function memberSession(identity,membership,token,expires,location,env){
+  const value=await seal({sub:identity.sub,...membership,googleName:identity.name||'',accessToken:token,exp:expires},env.SESSION_SECRET);
+  return new Response(null,{status:302,headers:[['Location',location],['Set-Cookie',setCookie(SESSION_COOKIE,value,Math.max(1,Math.floor((expires-Date.now())/1000)))],['Set-Cookie',clearCookie(SIGNUP_COOKIE)],['Set-Cookie',clearCookie(STATE_COOKIE)],['Cache-Control','private, no-store']]});
+}
+async function pendingSignup(request,env){
+  const pending=await unseal(cookie(request,SIGNUP_COOKIE)||'',env.SESSION_SECRET);
+  if(pending?.kind!=='signup'||!Number.isFinite(pending.exp)||pending.exp<=Date.now()||!pending.identity?.sub||!pending.identity.email?.endsWith('@joongdong.hs.kr')||!Number.isFinite(pending.tokenExpiresAt)||pending.tokenExpiresAt<=Date.now()||typeof pending.accessToken!=='string')throw Object.assign(new Error('가입 인증이 만료되었습니다. Google 로그인부터 다시 진행해 주세요.'),{status:401,code:'signup_auth_required'});
+  return pending;
+}
+async function readSmallJson(request){
+  const raw=await request.text();try{if(raw.length>4096)throw Error();const v=JSON.parse(raw);if(!v||typeof v!=='object'||Array.isArray(v))throw Error();return v;}catch{throw Object.assign(new Error('요청 형식을 확인해 주세요.'),{status:400,code:'invalid_request'});}
 }
 
 export function callbackRedirect(url, role, pridedesk = false) {
@@ -161,13 +176,22 @@ export async function photoContentResponse(photo, token, stream = streamDriveIma
 async function routeApi(request, env, pathname) {
   const viewer = await session(request, env);
   if(pathname.startsWith('/api/editorial-files/'))return routeEditorialFiles(request,env,viewer,pathname);
-  if (pathname === '/api/session' && request.method === 'GET') return ok({ authenticated: true, user: { id: viewer.sub, name: viewer.name, email: viewer.email, role: viewer.role, studentId: viewer.studentId } }, env);
+  if (pathname === '/api/session' && request.method === 'GET') return ok({ authenticated: true, user: { id: viewer.sub, name: viewer.name, email: viewer.email, role: viewer.role, studentId: viewer.studentId,profileUpdate:profileSuggestion(viewer) } }, env);
   if (['/api/members/roster','/api/classroom/students'].includes(pathname) && request.method === 'GET') { requireAdmin(viewer); return ok({students:await new Members(env.DB).roster({forAssignment:true})},env); }
-  if(pathname==='/api/admin/member-search/connect'&&request.method==='POST'){
-    requireAdmin(viewer);const {source}=await request.json();if(!Object.hasOwn(searchScopes,source))throw Object.assign(new Error('검색 출처를 선택해 주세요.'),{status:400});
-    const redirect=await login(request,env,source,viewer.memberId);return ok({url:redirect.headers.get('Location')},env,200,{'Set-Cookie':redirect.headers.get('Set-Cookie')});
+  if(pathname==='/api/admin/signup-code'){
+    requireAdmin(viewer);const signup=new Signup(env.DB,env.SESSION_SECRET);
+    if(request.method==='GET')return ok(await signup.settings(),env);
+    if(request.method==='PUT')return ok(await signup.configure(await readSmallJson(request),viewer),env);
   }
-  if(pathname==='/api/admin/member-search'&&request.method==='GET'){requireAdmin(viewer);return ok(await searchSchoolPeople(new URL(request.url).searchParams.get('q'),viewer),env);}
+  if(pathname==='/api/member-profile/confirm'&&request.method==='POST'){
+    requireStudent(viewer);const suggestion=profileSuggestion(viewer),input=await readSmallJson(request);
+    if(!suggestion?.studentNumber||input.studentNumber!==suggestion.studentNumber||input.confirmed!==true)throw Object.assign(new Error('현재 Google 학번을 확인해 주세요.'),{status:400,code:'profile_conflict'});
+    const now=new Date().toISOString();let result;
+    try{result=await env.DB.prepare('UPDATE members SET student_number=?,auth_version=auth_version+1,updated_at=?,changed_by=? WHERE id=? AND auth_version=? AND active=1 AND google_sub=? AND student_number=?').bind(suggestion.studentNumber,now,'profile:'+viewer.sub,viewer.memberId,viewer.authVersion,viewer.sub,viewer.studentNumber).run();}catch{throw Object.assign(new Error('학번을 갱신할 수 없습니다. 관리자에게 문의해 주세요.'),{status:409,code:'profile_conflict'});}
+    if((result.meta?.changes??result.changes)!==1)throw Object.assign(new Error('회원 정보가 변경되었습니다. 다시 로그인해 주세요.'),{status:409,code:'profile_conflict'});
+    const value=await seal({...viewer,studentNumber:suggestion.studentNumber,authVersion:viewer.authVersion+1},env.SESSION_SECRET);
+    return ok({updated:true},env,200,{'Set-Cookie':setCookie(SESSION_COOKIE,value,Math.max(1,Math.floor((viewer.exp-Date.now())/1000)))});
+  }
   const repo = repository(env);
   if(pathname==='/api/admin/members'||pathname.startsWith('/api/admin/members/')||pathname==='/api/admin/cohorts'){
     requireAdmin(viewer);const members=new Members(env.DB);
@@ -261,16 +285,29 @@ export default {
     try {
       ({ request, env } = pridedeskRequest(request, env));
       const url = new URL(request.url);
-      if(env.PREVIEW_MODE==='member-search'){
-        const readOnly=request.method==='GET'&&['/api/session','/api/admin/dashboard','/api/admin/members','/api/admin/member-search','/auth/login','/auth/callback'].includes(url.pathname);
-        const authPost=request.method==='POST'&&['/api/admin/member-search/connect','/auth/logout'].includes(url.pathname);
-        if(!readOnly&&!authPost)throw Object.assign(new Error('이 테스트 환경은 로그인과 계정 검색만 허용합니다. 저장·업로드·배정은 차단됩니다.'),{status:403,code:'preview_read_only'});
+      if(env.PREVIEW_MODE){
+        const readOnly=request.method==='GET'&&['/api/session','/api/admin/dashboard','/api/admin/members','/api/admin/signup-code','/api/signup','/auth/login','/auth/callback'].includes(url.pathname);
+        const allowed=(request.method==='POST'&&['/api/signup','/auth/logout'].includes(url.pathname))||(request.method==='PUT'&&url.pathname==='/api/admin/signup-code');
+        if(!readOnly&&!allowed)throw Object.assign(new Error('이 테스트 환경은 지정 계정의 가입 흐름과 가입 코드 설정만 허용합니다. 업무 데이터 쓰기는 차단됩니다.'),{status:403,code:'preview_read_only'});
       }
       if (url.pathname === '/api/public/issues') return await publicArchiveResponse(request, env);
       if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors(env) });
       if (url.pathname === '/auth/login' && request.method === 'GET') return await login(request, env);
       if (url.pathname === '/auth/callback' && request.method === 'GET') return await callback(request, env);
-      if (url.pathname === '/auth/logout' && request.method === 'POST') { requireTrustedOrigin(request); return ok({ authenticated: false }, env, 200, { 'Set-Cookie': clearCookie(SESSION_COOKIE) }); }
+      if (url.pathname === '/auth/logout' && request.method === 'POST') { requireTrustedOrigin(request); return new Response(JSON.stringify({authenticated:false}),{headers:[['Content-Type','application/json'],['Cache-Control','private, no-store'],['Set-Cookie',clearCookie(SESSION_COOKIE)],['Set-Cookie',clearCookie(SIGNUP_COOKIE)]]}); }
+      if(url.pathname==='/api/signup'){
+        requireTrustedOrigin(request);const pending=await pendingSignup(request,env),signup=new Signup(env.DB,env.SESSION_SECRET);
+        if(request.method==='GET')return ok({profile:await signup.available(pending.identity)},env,200,{'Cache-Control':'private, no-store'});
+        if(request.method==='POST'){
+          const membership=await signup.register(pending.identity,await readSmallJson(request));
+          const issued=await memberSession(pending.identity,membership,pending.accessToken,pending.tokenExpiresAt,callbackRedirect(url,'student',env.PRIDEDESK_REQUEST),env);
+          const headers=[...issued.headers].filter(([name])=>!['location','set-cookie'].includes(name));
+          headers.push(['Content-Type','application/json; charset=utf-8']);
+          for(const value of issued.headers.getSetCookie())headers.push(['Set-Cookie',value]);
+          return new Response(JSON.stringify({redirect:callbackRedirect(url,'student',env.PRIDEDESK_REQUEST)}),{status:201,headers});
+        }
+        return response({error:{code:'method_not_allowed',message:'Method not allowed.'}},405,env);
+      }
       if (url.pathname === '/api/session' && request.method === 'GET' && !cookie(request, SESSION_COOKIE)) return ok({ authenticated: false, user: null }, env);
       if (url.pathname.startsWith('/api/')) { requireTrustedOrigin(request); return await routeApi(request, env, url.pathname); }
       if (url.pathname === '/editorial' || url.pathname.startsWith('/editorial/')) return routeEditorial(request, env, url.pathname);

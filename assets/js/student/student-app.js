@@ -1,3 +1,4 @@
+import {showProfileUpdate} from '../auth/profile-update.js';
 import {lengthResult} from '../shared/length-rules.js';
 import {readableEditorHtml,editorHtml,editorText,characterCount,bindPlainTextPaste} from '../shared/editor-text.js';
 import {openDialog,closeDialog} from '../shared/dialog.js';
@@ -10,7 +11,7 @@ import { editorialService } from '../services/service-container.js';
 import { initShell } from '../shared/shell.js';
 import { emptyState, escapeHtml, formatDate, toast } from '../shared/ui.js';
 const viewLoader=createViewLoader(editorialService);
-const session=requireRole('student');if(!session)throw new Error('Redirecting');initShell(session,'기사 작성');
+const session=requireRole('student');if(!session)throw new Error('Redirecting');initShell(session,'기사 작성');showProfileUpdate(session);
 const labels={draft:'작성 중',submitted:'제출됨',reviewing:'확인 중',revision_requested:'수정 요청',hold:'보류',approved:'승인',scheduled:'발행 예정'};
 const types={school:'학교 기사',feature:'피처',opinion:'오피니언',culture:'문화',sports:'스포츠',other:'기타'};
 let selected=null,saveTimer=null,savePromise=null,lastSaved=null,activeTab='mine',currentView='dashboard';let main=document.querySelector('[data-view=dashboard]');

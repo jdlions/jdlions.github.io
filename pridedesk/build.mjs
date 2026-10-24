@@ -10,7 +10,7 @@ const output = resolve(root, 'dist');
 // Version the entire module graph, not just the entry script: relative imports,
 // dynamically loaded theme CSS and its images must all belong to this build.
 const digest = createHash('sha256');
-for (const file of [...editorialFiles, ...['login','admin','student'].map(page=>`${page}/index.html`), 'pridedesk/build.mjs'].sort()) {
+for (const file of [...editorialFiles, ...['login','admin','student','signup'].map(page=>`${page}/index.html`), 'pridedesk/build.mjs'].sort()) {
   digest.update(file).update('\0').update(await readFile(resolve(repository, file))).update('\0');
 }
 const assetPrefix = `assets/build-${digest.digest('hex').slice(0,16)}/`;
@@ -30,7 +30,7 @@ for (const file of editorialFiles) {
 await writeFile(resolve(output, assetPath('assets/js/config.js')), `export const editorialConfig = Object.freeze({ mode: 'production', apiBaseUrl: '' });
 export function editorialUrl(path) { return path; }
 `);
-for (const page of ['login', 'admin', 'student']) {
+for (const page of ['login', 'admin', 'student', 'signup']) {
   const source = await readFile(resolve(repository, page, 'index.html'), 'utf8');
   const html = versionReferences(source.replaceAll('href="../"', 'href="https://jdlions.github.io/"'));
   const target = resolve(output, page, 'index.html');

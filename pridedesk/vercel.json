@@ -14,9 +14,10 @@
     { "source": "/", "destination": "/login/", "permanent": false },
     { "source": "/login", "destination": "/login/", "permanent": false },
     { "source": "/admin", "destination": "/admin/", "permanent": false },
+    { "source": "/signup", "destination": "/signup/", "permanent": false },
     { "source": "/student", "destination": "/student/", "permanent": false },
     { "source": "/editorial", "destination": "/login/", "permanent": false },
-    { "source": "/editorial/:page(login|admin|student)/", "destination": "/:page/", "permanent": false }
+    { "source": "/editorial/:page(login|admin|student|signup)/", "destination": "/:page/", "permanent": false }
   ],
   "headers": [
     { "source": "/(.*)", "headers": [

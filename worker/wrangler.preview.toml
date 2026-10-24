@@ -4,7 +4,7 @@ main = "src/index.js"
 compatibility_date = "2026-08-01"
 workers_dev = true
 [vars]
-PREVIEW_MODE = "member-search"
+PREVIEW_MODE = "member-registration"
 PREVIEW_ADMIN_EMAIL = "editor@joongdong.hs.kr"
 PRIDEDESK_ORIGIN = "https://pridedesk-git-feature-member-academic-year-the-lion-s-pride.vercel.app"
 EDITORIAL_ORIGIN = "https://pridedesk-git-feature-member-academic-year-the-lion-s-pride.vercel.app"

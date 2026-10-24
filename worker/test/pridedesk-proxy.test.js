@@ -119,7 +119,8 @@ test('OAuth login → callback → session works for both roles without leaking 
     assert.equal(callback.status, 302);
     assert.equal(callback.headers.get('location'), `${frontend}/${role}/`);
     const cookies = callback.headers.getSetCookie();
-    assert.equal(cookies.length, 2);
+    assert.equal(cookies.length, 3);
+    assert(cookies.some(value=>value.startsWith('__Host-lp_signup=;')&&value.includes('Max-Age=0')));
     for (const value of cookies) {
       assert.match(value, /Path=\/;.*Secure; HttpOnly; SameSite=Lax/);
       assert.doesNotMatch(value, /Domain=|SameSite=None/);

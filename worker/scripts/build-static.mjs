@@ -14,7 +14,7 @@ for (const file of files) {
   await cp(resolve(repositoryRoot, file), destination);
 }
 
-for (const page of ['login', 'admin', 'student']) {
+for (const page of ['login', 'admin', 'student', 'signup']) {
   const source = await readFile(resolve(repositoryRoot, page, 'index.html'), 'utf8');
   const html = source.replaceAll('href="../"', 'href="https://jdlions.github.io/"');
   const destination = resolve(outputRoot, page, 'index.html');

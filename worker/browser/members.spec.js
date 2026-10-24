@@ -5,7 +5,7 @@ async function setup(page){
  await page.route('**/api/**',async route=>{const request=route.request(),url=new URL(request.url()),p=url.pathname;let data;
  if(p==='/api/session')data={authenticated:true,user:{role:'admin',name:'Teacher'}};
  else if(p==='/api/admin/dashboard')data={assignment:{campaign:null,progress:[]},editorial:null,errors:{}};
- else if(p==='/api/admin/member-search'){await route.fulfill({status:403,json:{error:{message:'Google 검색 연결이 필요합니다.'}}});return;}
+ else if(p==='/api/admin/signup-code'){data=request.method()==='GET'?{configured:false,enabled:false,version:0,updatedAt:null}:{configured:true,enabled:request.postDataJSON().enabled,version:1,updatedAt:'2026-10-24'};if(request.method()!=='GET')writes.push(request.postDataJSON());}
  else if(p==='/api/admin/cohorts'){const body=request.postDataJSON();cohorts=[body.number,...cohorts];writes.push(body);data=body;}
  else if(p.startsWith('/api/admin/members')){if(request.method()==='GET'){const q=url.searchParams.get('q')||'',role=url.searchParams.get('role');data={members:members.filter(m=>(!q||m.name.includes(q)||m.email.includes(q)||m.studentNumber?.includes(q))&&(!role||m.role===role)),cohorts};}else{const body=request.postDataJSON();writes.push(body);const id=p.split('/')[4]||'new';data={...body,id,linked:false,version:2,createdAt:'2026-10-01',updatedAt:'2026-10-02'};members=[...members.filter(m=>m.id!==id),data];}}
  else throw Error('Unexpected '+p);
@@ -50,12 +50,13 @@ for(const year of [2027,2028])test('new academic year recommendations without st
  await expect(d).toContainText('직접 입력');await expect(d.locator('[name=active]')).toHaveCount(0);
 });
 
-test('school autocomplete chooses a current number from display name, not historical email',async({page})=>{
- const state=await setup(page);await page.route('**/api/admin/member-search?*',route=>route.fulfill({json:{people:[{displayName:'20624가상학생',email:'h2511999@joongdong.hs.kr'},{displayName:'20624가상학생',email:'another@joongdong.hs.kr'}]}}));
- await page.locator('[data-admin-view=members]').click();await expect(page.locator('.member-card')).toBeVisible();await page.locator('[data-new-member]').click();const d=page.getByRole('dialog');
- await d.locator('[name=name]').fill('가상학생');await expect(d.getByRole('listbox').getByRole('option')).toHaveCount(2);await page.keyboard.press('ArrowDown');await page.keyboard.press('Enter');
- await expect(d.locator('[name=name]')).toHaveValue('가상학생');await expect(d.locator('[name=email]')).toHaveValue('h2511999@joongdong.hs.kr');await expect(d.locator('[name=studentNumber]')).toHaveValue('20624');expect(state.writes).toHaveLength(0);
+test('signup code settings are lazy, administrator-managed and never redisplay plaintext',async({page})=>{
+ const state=await setup(page),requests=[];page.on('request',r=>{if(r.url().includes('/api/admin/signup-code'))requests.push(r.method());});
+ await page.locator('[data-admin-view=members]').click();await expect(page.locator('.member-card')).toBeVisible();expect(requests).toEqual([]);
+ await page.getByText('학생 공통 가입 코드 설정',{exact:true}).click();await expect(page.locator('[data-code-state]')).toContainText('아직 코드가 없습니다');
+ const form=page.locator('[data-signup-code-form]');await form.locator('[name=code]').fill('isolated-fixture-code');await form.locator('[name=enabled]').check();await form.getByRole('button').click();await expect(page.locator('[data-code-result]')).toHaveText('가입 코드 설정을 저장했습니다.');await expect(form.locator('[name=code]')).toHaveValue('');expect(state.writes[0].enabled).toBe(true);
+ await page.locator('[data-new-member]').click();await expect(page.getByRole('dialog').getByRole('button',{name:'Google 검색 연결'})).toHaveCount(0);await expect(page.getByRole('dialog').locator('[name=email]')).toBeEditable();
 });
-test('school autocomplete error leaves manual fields editable',async({page})=>{
- await setup(page);await page.route('**/api/admin/member-search?*',route=>route.fulfill({status:403,json:{error:{message:'검색 연결 필요'}}}));await page.locator('[data-admin-view=members]').click();await expect(page.locator('.member-card')).toBeVisible();await page.locator('[data-new-member]').click();const d=page.getByRole('dialog');await d.locator('[name=name]').fill('직접 입력');await expect(d).toContainText('검색 연결 필요');await expect(d.locator('[name=email]')).toBeEditable();
+test('recent registrations use existing list sorting without a second membership system',async({page})=>{
+ await setup(page);await page.locator('[data-admin-view=members]').click();await expect(page.locator('.member-card')).toBeVisible();const request=page.waitForRequest(r=>r.url().includes('/api/admin/members?')&&new URL(r.url()).searchParams.get('sort')==='recent');await page.locator('[data-member-sort]').selectOption('recent');await request;await expect(page.locator('.member-card')).toContainText('등록');
 });
