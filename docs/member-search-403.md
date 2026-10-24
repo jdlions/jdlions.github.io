@@ -17,10 +17,12 @@ from mock tests, Gmail behavior, an enabled consent-screen scope, or no new cons
   live token introspection or exemption from later administrator restrictions.
 - Safe error diagnostics retain only allowlisted status/reasons, known detail type
   names, the exact People service identifier, and that exchange-time verification.
-  Provider messages, arbitrary detail metadata, consumer/project values, request
+  Only a finite list of generic, non-identifying provider messages may be displayed.
+  Arbitrary provider messages, detail metadata, consumer/project values, request
   query, token, cookie and contact results are neither returned nor logged.
-- `NOT_PROVIDED` means no allowlisted reason was available; it is not proof of any
-  particular configuration error. Unknown detail types/reasons are intentionally omitted.
+- `NOT_PROVIDED` means Google supplied no structured reason; `REDACTED` means a
+  supplied value was not allowlisted. `NONE` means no details array entries were
+  supplied. None of these is proof of a particular configuration error.
 
 ## Retry without new OAuth consent
 

@@ -4,9 +4,11 @@ import {searchSchoolPeople,safeSearchFailure} from '../src/member-search.js';
 
 test('Google diagnostics allow only finite error codes, never provider content',()=>{
  const result=safeSearchFailure({error:{status:'PERMISSION_DENIED',message:'PRIVATE',details:[{'@type':'type.googleapis.com/google.rpc.ErrorInfo',reason:'SERVICE_DISABLED',metadata:{service:'people.googleapis.com',consumer:'PRIVATE',token:'PRIVATE'}},{'@type':'PRIVATE',reason:'PRIVATE'}],errors:[{reason:'insufficientPermissions',message:'PRIVATE'},{reason:'PRIVATE'}]}});
- assert.deepEqual(result,{googleCode:'PERMISSION_DENIED',reasons:['SERVICE_DISABLED','insufficientPermissions'],detailTypes:['type.googleapis.com/google.rpc.ErrorInfo'],service:'people.googleapis.com'});
+ assert.deepEqual(result,{googleCode:'PERMISSION_DENIED',providerMessage:'REDACTED',reasonReported:true,detailsReported:true,reasons:['SERVICE_DISABLED','insufficientPermissions'],detailTypes:['type.googleapis.com/google.rpc.ErrorInfo'],service:'people.googleapis.com'});
  assert(!JSON.stringify(result).includes('PRIVATE'));
- for(const error of [null,{}, {error:{status:'PRIVATE',details:{},errors:'PRIVATE'}}])assert.deepEqual(safeSearchFailure(error),{googleCode:'UNKNOWN',reasons:[],detailTypes:[],service:null});
+ for(const error of [null,{}, {error:{status:'PRIVATE',details:{},errors:'PRIVATE'}}])assert.deepEqual(safeSearchFailure(error),{googleCode:'UNKNOWN',providerMessage:'REDACTED',reasonReported:false,detailsReported:false,reasons:[],detailTypes:[],service:null});
+ assert.equal(safeSearchFailure({error:{message:'The caller does not have permission'}}).providerMessage,'The caller does not have permission');
+ assert.equal(safeSearchFailure({error:{details:[{'@type':'type.googleapis.com/google.rpc.ErrorInfo',reason:'PRIVATE'}]}}).reasonReported,true);
 });
 
 test('Google failures expose safe setup, scope and policy reasons without logging credentials',async t=>{
