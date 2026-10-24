@@ -1,3 +1,4 @@
+import {isNewAssignmentEligible} from '../../assets/js/shared/student-identity.js';
 // Read-only projections: no article bodies, Drive IDs, roster calls or per-student queries.
 const rows=async(db,query,args=[]) => (await db.prepare(query).bind(...args).all()).results;
 export async function articleStudentOverview(db,roster=[]){
@@ -10,9 +11,10 @@ export async function articleStudentOverview(db,roster=[]){
   ) SELECT x.student_id studentId,x.student_name studentName,x.campaign_id campaignId,c.name assignmentName,
     x.article_type articleType,a.id,a.title_ko titleKo,a.title_en titleEn,a.status,a.updated_at updatedAt,a.submitted_at submittedAt
     FROM scope x LEFT JOIN articles a ON a.id=x.article_id LEFT JOIN assignment_campaigns c ON c.id=x.campaign_id`);
-  const students=new Map(roster.map(s=>[s.id,{studentId:s.id,name:s.name||s.id}])),items=[],campaigns=new Map(),seen=new Set();
+  const names=new Map(roster.map(s=>[s.id,s.name]));
+  const students=new Map(roster.filter(isNewAssignmentEligible).map(s=>[s.id,{studentId:s.id,name:s.name||s.id}])),items=[],campaigns=new Map(),seen=new Set();
   for(const row of scope){
-    if(!students.has(row.studentId))students.set(row.studentId,{studentId:row.studentId,name:row.studentName||row.studentId});
+    if(!students.has(row.studentId))students.set(row.studentId,{studentId:row.studentId,name:names.get(row.studentId)||row.studentName||row.studentId});
     if(row.campaignId)campaigns.set(row.campaignId,{id:row.campaignId,name:row.assignmentName});
     if(row.id&&!seen.has(row.id)){seen.add(row.id);const {studentName,...item}=row;items.push({...item,authorName:students.get(row.studentId).name});}
   }

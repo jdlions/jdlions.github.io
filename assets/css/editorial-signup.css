@@ -1,0 +1,11 @@
+.signup-shell { width:min(560px,calc(100% - 32px)); margin:32px auto; min-width:0; }
+.signup-shell .login-card { width:100%; min-height:0; padding:28px; overflow-wrap:anywhere; }
+.signup-logo { display:block; width:min(240px,100%); height:auto; margin-bottom:20px; }
+.signup-shell h1 { font-size:clamp(24px,5vw,32px); }
+.signup-shell form { display:grid; gap:16px; }
+.signup-shell form[hidden] { display:none; }
+.signup-shell input:not([type=checkbox]) { width:100%; min-width:0; min-height:44px; font-size:16px; }
+.signup-confirm { display:flex; align-items:center; gap:10px; min-height:44px; }
+.signup-confirm input { flex-shrink:0; }
+.signup-shell button { min-height:44px; }
+@media(max-width:600px) { .signup-shell { margin:16px auto; } .signup-shell .login-card { padding:20px; } .signup-shell .form-grid { grid-template-columns:1fr; } }

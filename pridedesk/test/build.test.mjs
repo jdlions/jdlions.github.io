@@ -28,7 +28,7 @@ test('output contains only PrideDesk and all HTML/module dependencies resolve', 
       : file.endsWith('.js') ? [...source.matchAll(/(?:from\s*|import\s*)['"]([^'"]+)['"]/g)].map(match => match[1]) : [...source.matchAll(/url\(['"]?([^)'"]+)['"]?\)/g)].map(match=>match[1]);
     for (const reference of references.filter(value => value.startsWith('.'))) await access(resolve(dirname(path), reference));
   }
-  for (const page of ['login', 'admin', 'student']) {
+  for (const page of ['login', 'admin', 'student', 'signup']) {
     assert.match(await readFile(resolve(output, page, 'index.html'), 'utf8'), /https:\/\/jdlions.github.io\//);
   }
 });
@@ -36,7 +36,10 @@ test('output contains only PrideDesk and all HTML/module dependencies resolve', 
 test('routes proxy API/auth only, preserve path and avoid global slash redirects on POST', async () => {
   const config = JSON.parse(await readFile(resolve(root, 'vercel.json'), 'utf8'));
   assert.equal(config.trailingSlash, undefined);
-  assert.deepEqual(config.rewrites.map(rule => rule.source), ['/api/:path*', '/auth/:path*']);
+  assert.deepEqual(config.rewrites.map(rule => rule.source), ['/api/:path*', '/auth/:path*','/api/:path*', '/auth/:path*']);
+  assert(config.rewrites.every(rule=>rule.has?.[0]?.type==='host'));
+  assert(config.rewrites.slice(0,2).every(rule=>rule.has[0].value==='pridesk.vercel.app'));
+  assert(config.rewrites.slice(2).every(rule=>rule.destination.includes('lions-pride-editorial-api-preview.')&&rule.has[0].value==='pridedesk-git-feature-member-academic-year-the-lion-s-pride.vercel.app'));
   for (const rule of config.rewrites) assert.equal(new URL(rule.destination).pathname, `/pridedesk${rule.source}`);
   assert(config.headers[0].headers.some(header => header.key === 'Vercel-CDN-Cache-Control' && header.value === 'no-store'));
 });
@@ -55,7 +58,7 @@ test('cache policy grants freshness only to the public static asset namespace',a
 test('HTML, imported modules and dynamic theme use one content-versioned asset graph', async () => {
   const admin = await readFile(resolve(output,'admin/index.html'),'utf8');
   const prefix = admin.match(/\.\.\/(assets\/build-[a-f0-9]{16}\/)js\/admin\/admin-app.js/)[1];
-  for(const page of ['login','admin','student']){
+  for(const page of ['login','admin','student','signup']){
     const html=await readFile(resolve(output,page,'index.html'),'utf8');
     const refs=[...html.matchAll(/(?:src|href)="(\.\.\/assets\/[^\"]+)"/g)].map(m=>m[1]);
     assert(refs.length>0);
@@ -70,7 +73,7 @@ test('HTML, imported modules and dynamic theme use one content-versioned asset g
 
 test('official branding and social assets resolve within the versioned build; originals stay out',async()=>{
  const files=await readdir(output,{recursive:true});assert(!files.some(x=>x.includes('branding/source')));
- for(const page of ['login','admin','student']){
+ for(const page of ['login','admin','student','signup']){
   const html=await readFile(resolve(output,page,'index.html'),'utf8');
   assert.match(html,/pridedesk-logo-dark-gold\.webp/);assert.match(html,/pridedesk-icon-16\.png/);assert.match(html,/pridedesk-icon-32\.png/);assert.match(html,/pridedesk-icon-180\.png/);assert.match(html,/noindex, nofollow/);
   for(const item of html.matchAll(/srcset="([^"]+)"/g))for(const candidate of item[1].split(','))await access(resolve(output,page,candidate.trim().split(/\s+/)[0]));

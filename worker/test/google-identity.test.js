@@ -7,7 +7,7 @@ const claims={sub:'123456789',email:'teacher@joongdong.hs.kr',email_verified:tru
 async function token(overrides={},key=keys.privateKey){return new SignJWT({...claims,...overrides}).setProtectedHeader({alg:'RS256'}).sign(key);}
 test('verified school ID token accepts stable Google subject and checks access-token binding',async()=>{
  const access_token='secret';const bytes=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(access_token)));const at_hash=Buffer.from(bytes.slice(0,16)).toString('base64url');
- assert.deepEqual(await verifyGoogleIdentity({id_token:await token({at_hash}),access_token,token_type:'Bearer'},'client','expected',keys.publicKey),{sub:claims.sub,email:claims.email});
+ assert.deepEqual(await verifyGoogleIdentity({id_token:await token({at_hash}),access_token,token_type:'Bearer'},'client','expected',keys.publicKey),{sub:claims.sub,email:claims.email,name:''});
 });
 test('signature, issuer, audience, verified email, school domain, expiry, nonce and token hash fail closed',async t=>{
  for(const overrides of [{iss:'https://evil.example'},{aud:'other'},{email_verified:false},{hd:'gmail.com'},{email:'teacher@gmail.com'},{exp:1},{nonce:'wrong'},{sub:''},{azp:'other'},{at_hash:'wrong'}])await t.test(Object.keys(overrides)[0],async()=>assert.rejects(verifyGoogleIdentity({id_token:await token(overrides),access_token:'secret',token_type:'Bearer'},'client','expected',keys.publicKey),e=>e.status===401&&!e.message.includes('secret')));

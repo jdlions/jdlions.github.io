@@ -5,16 +5,19 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/api/:path*", "destination": "https://lions-pride-editorial-api.editor-936.workers.dev/pridedesk/api/:path*" },
-    { "source": "/auth/:path*", "destination": "https://lions-pride-editorial-api.editor-936.workers.dev/pridedesk/auth/:path*" }
+    { "source": "/api/:path*", "has": [{ "type": "host", "value": "pridesk.vercel.app" }], "destination": "https://lions-pride-editorial-api.editor-936.workers.dev/pridedesk/api/:path*" },
+    { "source": "/auth/:path*", "has": [{ "type": "host", "value": "pridesk.vercel.app" }], "destination": "https://lions-pride-editorial-api.editor-936.workers.dev/pridedesk/auth/:path*" },
+    { "source": "/api/:path*", "has": [{ "type": "host", "value": "pridedesk-git-feature-member-academic-year-the-lion-s-pride.vercel.app" }], "destination": "https://lions-pride-editorial-api-preview.editor-936.workers.dev/pridedesk/api/:path*" },
+    { "source": "/auth/:path*", "has": [{ "type": "host", "value": "pridedesk-git-feature-member-academic-year-the-lion-s-pride.vercel.app" }], "destination": "https://lions-pride-editorial-api-preview.editor-936.workers.dev/pridedesk/auth/:path*" }
   ],
   "redirects": [
     { "source": "/", "destination": "/login/", "permanent": false },
     { "source": "/login", "destination": "/login/", "permanent": false },
     { "source": "/admin", "destination": "/admin/", "permanent": false },
+    { "source": "/signup", "destination": "/signup/", "permanent": false },
     { "source": "/student", "destination": "/student/", "permanent": false },
     { "source": "/editorial", "destination": "/login/", "permanent": false },
-    { "source": "/editorial/:page(login|admin|student)/", "destination": "/:page/", "permanent": false }
+    { "source": "/editorial/:page(login|admin|student|signup)/", "destination": "/:page/", "permanent": false }
   ],
   "headers": [
     { "source": "/(.*)", "headers": [

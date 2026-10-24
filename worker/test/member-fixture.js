@@ -16,9 +16,10 @@ export async function registerFixture(env,sub,role='student',options={}){
   if(!env.DB?.prepare){const f=memberDatabase();env.DB=f.db;}
   let row=await env.DB.prepare('SELECT * FROM members WHERE google_sub=?').bind(sub).first();
   if(!row){
+    if(options.cohort)await env.DB.prepare('INSERT OR IGNORE INTO member_cohorts(number,created_at) VALUES(?,?)').bind(options.cohort,'2026').run();
     const n=Number((await env.DB.prepare('SELECT COUNT(*) n FROM members').bind().first()).n)+10000;
     const number=options.number||String(n),email=options.email||(role==='admin'?`teacher${n}@joongdong.hs.kr`:`h26${number}@joongdong.hs.kr`);
-    await env.DB.prepare('INSERT INTO members(id,google_sub,email,name,role,student_number,cohort,active,created_at,updated_at,changed_by) VALUES(?,?,?,?,?,?,?,1,?,?,?)').bind(crypto.randomUUID(),sub,email,options.name||'Fixture',role==='admin'?'teacher':'student',role==='admin'?null:number,role==='admin'?null:36,'2026','2026','fixture').run();
+    await env.DB.prepare('INSERT INTO members(id,google_sub,email,name,role,student_number,cohort,active,created_at,updated_at,changed_by) VALUES(?,?,?,?,?,?,?,1,?,?,?)').bind(crypto.randomUUID(),sub,email,options.name||'Fixture',role==='admin'?'teacher':'student',role==='admin'?null:number,role==='admin'?null:(options.cohort??36),'2026','2026','fixture').run();
     row=await env.DB.prepare('SELECT * FROM members WHERE google_sub=?').bind(sub).first();
   }
   return row;
