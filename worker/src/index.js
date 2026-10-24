@@ -103,6 +103,7 @@ async function callback(request, env) {
   const tokens = await exchangeCode(code, env, saved.verifier);
   const identity=await verifyGoogleIdentity(tokens,env.GOOGLE_CLIENT_ID,saved.nonce);
   if(saved.searchSource){const existing=await session(request,env);requireAdmin(existing);if(existing.memberId!==saved.searchMember||existing.sub!==identity.sub)throw Object.assign(new Error('동일한 관리자 계정으로 연결해 주세요.'),{status:403,code:'search_account_mismatch'});}
+  if(env.PREVIEW_MODE==='member-search'&&identity.email!==env.PREVIEW_ADMIN_EMAIL)throw Object.assign(new Error('테스트 관리자만 접근할 수 있습니다.'),{status:403,code:'preview_admin_only'});
   const membership=await new Members(env.DB).login(identity);
   const expires = Math.min(Date.now() + SESSION_SECONDS * 1000, Date.now() + Number(tokens.expires_in || SESSION_SECONDS) * 1000);
   const value = await seal({sub:identity.sub,...membership,accessToken:tokens.access_token,searchSource:saved.searchSource&&String(tokens.scope||'').split(' ').includes(searchScopes[saved.searchSource])?saved.searchSource:null,exp:expires},env.SESSION_SECRET);
@@ -260,6 +261,11 @@ export default {
     try {
       ({ request, env } = pridedeskRequest(request, env));
       const url = new URL(request.url);
+      if(env.PREVIEW_MODE==='member-search'){
+        const readOnly=request.method==='GET'&&['/api/session','/api/admin/dashboard','/api/admin/members','/api/admin/member-search','/auth/login','/auth/callback'].includes(url.pathname);
+        const authPost=request.method==='POST'&&['/api/admin/member-search/connect','/auth/logout'].includes(url.pathname);
+        if(!readOnly&&!authPost)throw Object.assign(new Error('이 테스트 환경은 로그인과 계정 검색만 허용합니다. 저장·업로드·배정은 차단됩니다.'),{status:403,code:'preview_read_only'});
+      }
       if (url.pathname === '/api/public/issues') return await publicArchiveResponse(request, env);
       if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors(env) });
       if (url.pathname === '/auth/login' && request.method === 'GET') return await login(request, env);

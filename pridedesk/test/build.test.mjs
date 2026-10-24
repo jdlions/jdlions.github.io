@@ -36,7 +36,10 @@ test('output contains only PrideDesk and all HTML/module dependencies resolve', 
 test('routes proxy API/auth only, preserve path and avoid global slash redirects on POST', async () => {
   const config = JSON.parse(await readFile(resolve(root, 'vercel.json'), 'utf8'));
   assert.equal(config.trailingSlash, undefined);
-  assert.deepEqual(config.rewrites.map(rule => rule.source), ['/api/:path*', '/auth/:path*']);
+  assert.deepEqual(config.rewrites.map(rule => rule.source), ['/api/:path*', '/auth/:path*','/api/:path*', '/auth/:path*']);
+  assert(config.rewrites.every(rule=>rule.has?.[0]?.type==='host'));
+  assert(config.rewrites.slice(0,2).every(rule=>rule.has[0].value==='pridesk.vercel.app'));
+  assert(config.rewrites.slice(2).every(rule=>rule.destination.includes('lions-pride-editorial-api-preview.')&&rule.has[0].value==='pridedesk-git-feature-member-academic-year-the-lion-s-pride.vercel.app'));
   for (const rule of config.rewrites) assert.equal(new URL(rule.destination).pathname, `/pridedesk${rule.source}`);
   assert(config.headers[0].headers.some(header => header.key === 'Vercel-CDN-Cache-Control' && header.value === 'no-store'));
 });

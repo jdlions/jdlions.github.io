@@ -1,0 +1,16 @@
+# Dedicated configuration: never deploy this with the production config.
+name = "lions-pride-editorial-api-preview"
+main = "src/index.js"
+compatibility_date = "2026-08-01"
+workers_dev = true
+[vars]
+PREVIEW_MODE = "member-search"
+PREVIEW_ADMIN_EMAIL = "editor@joongdong.hs.kr"
+PRIDEDESK_ORIGIN = "https://pridedesk-git-feature-member-academic-year-the-lion-s-pride.vercel.app"
+EDITORIAL_ORIGIN = "https://pridedesk-git-feature-member-academic-year-the-lion-s-pride.vercel.app"
+OAUTH_REDIRECT_URI = "https://pridedesk-git-feature-member-academic-year-the-lion-s-pride.vercel.app/auth/callback"
+[[d1_databases]]
+binding = "DB"
+database_name = "editorial-member-search-preview"
+# Dedicated empty test database; never substitute production's ID.
+database_id = "90d03fac-c04f-4476-a595-470444abcb99"
