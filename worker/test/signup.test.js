@@ -57,6 +57,7 @@ test('code attempts are durably limited per verified account, regardless of new 
  const {signup,sql}=fixture(t);await enabled(signup);
  for(let i=0;i<5;i++)await assert.rejects(signup.register(identity(),{...input(),code:'wrong-code-fixture'}),e=>e.code==='signup_code_invalid');
  await assert.rejects(signup.register(identity(),input()),e=>e.status===429);
+ assert.equal(sql.prepare("SELECT attempts FROM member_signup_attempts WHERE bucket='global'").get().attempts,5);
  assert(!JSON.stringify(sql.prepare('SELECT * FROM member_signup_attempts').all()).includes(identity().sub));
  const later=new Signup(signup.db,'fixture-secret',()=>new Date(time.getTime()+900000));assert.equal((await later.register(identity(),input())).role,'student');
 });

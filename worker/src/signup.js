@@ -42,7 +42,11 @@ export class Signup {
     const key=await crypto.subtle.importKey('raw',encoder.encode(this.secret),{name:'HMAC',hash:'SHA-256'},false,['sign']);
     const account='account:'+hex(await crypto.subtle.sign('HMAC',key,encoder.encode(sub)));
     const window=Math.floor(this.now().getTime()/900000);
-    await this.db.batch([account,'global'].map(bucket=>this.db.prepare('INSERT INTO member_signup_attempts(bucket,window,attempts) VALUES(?,?,1) ON CONFLICT(bucket) DO UPDATE SET window=excluded.window,attempts=CASE WHEN member_signup_attempts.window=excluded.window THEN member_signup_attempts.attempts+1 ELSE 1 END').bind(bucket,window)));
+    // An account already over its own quota must not exhaust everybody's quota.
+    await this.db.batch([
+      this.db.prepare('INSERT INTO member_signup_attempts(bucket,window,attempts) VALUES(?,?,1) ON CONFLICT(bucket) DO UPDATE SET window=excluded.window,attempts=CASE WHEN member_signup_attempts.window=excluded.window THEN member_signup_attempts.attempts+1 ELSE 1 END').bind(account,window),
+      this.db.prepare('INSERT INTO member_signup_attempts(bucket,window,attempts) SELECT ?,?,1 WHERE (SELECT attempts FROM member_signup_attempts WHERE bucket=? AND window=?)<=5 ON CONFLICT(bucket) DO UPDATE SET window=excluded.window,attempts=CASE WHEN member_signup_attempts.window=excluded.window THEN member_signup_attempts.attempts+1 ELSE 1 END').bind('global',window,account,window)
+    ]);
     const {results}=await this.db.prepare('SELECT bucket,attempts FROM member_signup_attempts WHERE bucket IN (?,?)').bind(account,'global').all();
     if(results.some(r=>r.attempts>(r.bucket==='global'?100:5)))throw error('가입 시도가 많습니다. 잠시 후 다시 시도해 주세요.',429,'signup_rate_limited');
   }
