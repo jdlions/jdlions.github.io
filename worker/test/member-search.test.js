@@ -1,6 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {searchSchoolPeople} from '../src/member-search.js';
+import {searchSchoolPeople,safeSearchFailure} from '../src/member-search.js';
+
+test('Google diagnostics allow only finite error codes, never provider content',()=>{
+ const result=safeSearchFailure({error:{status:'PERMISSION_DENIED',message:'PRIVATE',details:[{'@type':'type.googleapis.com/google.rpc.ErrorInfo',reason:'SERVICE_DISABLED',metadata:{service:'people.googleapis.com',consumer:'PRIVATE',token:'PRIVATE'}},{'@type':'PRIVATE',reason:'PRIVATE'}],errors:[{reason:'insufficientPermissions',message:'PRIVATE'},{reason:'PRIVATE'}]}});
+ assert.deepEqual(result,{googleCode:'PERMISSION_DENIED',reasons:['SERVICE_DISABLED','insufficientPermissions'],detailTypes:['type.googleapis.com/google.rpc.ErrorInfo'],service:'people.googleapis.com'});
+ assert(!JSON.stringify(result).includes('PRIVATE'));
+ for(const error of [null,{}, {error:{status:'PRIVATE',details:{},errors:'PRIVATE'}}])assert.deepEqual(safeSearchFailure(error),{googleCode:'UNKNOWN',reasons:[],detailTypes:[],service:null});
+});
+
+test('Google failures expose safe setup, scope and policy reasons without logging credentials',async t=>{
+ const logs=[];t.mock.method(console,'error',value=>logs.push(value));
+ for(const reason of ['SERVICE_DISABLED','ACCESS_TOKEN_SCOPE_INSUFFICIENT','ORG_RESTRICTION_VIOLATION','domainPolicy','forbidden']){
+  t.mock.method(globalThis,'fetch',async()=>Response.json({error:{status:'PERMISSION_DENIED',message:'PRIVATE',details:[{'@type':'type.googleapis.com/google.rpc.ErrorInfo',reason,metadata:{service:'people.googleapis.com',consumer:'PRIVATE'}}]}},{status:403}));
+  await assert.rejects(searchSchoolPeople('PRIVATE',{searchSource:'directory',accessToken:'PRIVATE'}),e=>{assert(e.message.includes(reason));assert(e.message.includes('directory scope: 교환 시 확인됨'));assert(!e.message.includes('PRIVATE'));return e.status===403;});
+ }
+ assert(logs.every(s=>!s.includes('PRIVATE')));
+ assert(logs.every(s=>JSON.parse(s).scopeVerifiedAtExchange===true));
+});
 test('search requires explicit administrator consent and bounds queries',async()=>{
  for(const viewer of [{},{searchSource:'toString'}])await assert.rejects(searchSchoolPeople('학생',viewer),e=>e.status===403);
  await assert.rejects(searchSchoolPeople('a',{searchSource:'directory'}),e=>e.status===400);
