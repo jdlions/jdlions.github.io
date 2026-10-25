@@ -57,3 +57,7 @@ for(const width of [390,820,1440])test('campaign dropdown stays open when deboun
  for(const key of ['campaign-filter','status-filter','type-filter','grade-filter'])await select(page,key,'');
  await expect(page.locator('.compact-student-card')).toHaveCount(24);
 });
+
+test('unlinked same-name membership is shown separately without duplicate article cards or ownership merging',async({page})=>{
+ await setup(page);await page.route('**/api/admin/article-overview',r=>r.fulfill({json:{...overviewResponse(articles,students),pendingMembers:[{id:'member:pending',name:students[0].name}],campaigns:[{id:'c',name:'Winter'}]}}));await page.locator('[data-page-refresh]').click();const summary=page.getByText('Google 계정 연결 대기 회원 1명',{exact:true});await expect(summary).toBeVisible();await summary.click();await expect(page.locator('[data-list-results] details')).toContainText('이름으로 합치지 않으며');await expect(page.locator('.compact-student-card')).toHaveCount(24);await expect(page.locator('.compact-student-card').first()).toContainText(students[0].name);
+});

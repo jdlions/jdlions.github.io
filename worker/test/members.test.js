@@ -13,7 +13,7 @@ test('only explicitly registered active school accounts can bind; Classroom gran
   assert.equal((await members.roster())[0].id,'member:'+row.id);
   const claims=await members.login({sub:'123',email:row.email});
   assert.equal(claims.studentId,'123');assert.equal(claims.role,'student');
-  assert.deepEqual(await members.roster(),[{id:'123',memberId:row.id,name:'11001 학생',studentNumber:'11001',cohort:36}]);
+  assert.deepEqual(await members.roster(),[{id:'123',memberId:row.id,name:'11001 학생',studentNumber:'11001',cohort:36,linked:true,identityState:'linked'}]);
   assert.equal(sql.prepare("SELECT COUNT(*) n FROM member_audit WHERE action='linked'").get().n,1);
   await assert.rejects(members.login({sub:'456',email:row.email}),e=>e.status===403);
   assert.equal(sql.prepare('SELECT google_sub FROM members WHERE id=?').get(row.id).google_sub,'123');
@@ -44,7 +44,7 @@ test('email changes preserve Google ownership and reject a replacement account w
   assert.equal((await members.login({sub:'123',email:row.email})).studentId,'123');
   await assert.rejects(members.login({sub:'456',email:row.email}),e=>e.status===403);
   assert.throws(()=>sql.prepare('UPDATE members SET google_sub=? WHERE id=?').run('456',row.id),/member_identity_immutable/);
-  assert.throws(()=>sql.prepare('DELETE FROM members WHERE id=?').run(row.id),/member_deletion_disabled/);
+  assert.throws(()=>sql.prepare('DELETE FROM members WHERE id=?').run(row.id),/member_history_protected/);
 });
 test('duplicates, stale updates, bootstrap lockout and unknown cohorts fail without partial writes',async t=>{
   const {members}=fixture(t);const row=await members.save(null,student(),actor);

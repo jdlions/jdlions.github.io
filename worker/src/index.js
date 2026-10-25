@@ -1,3 +1,4 @@
+import {memberHistory,deleteEmptyMember} from './member-history.js';
 import {Signup,SIGNUP_COOKIE,profileSuggestion} from './signup.js';
 import {memberRecipient} from './member-assignments.js';
 import {Members} from './members.js';
@@ -197,6 +198,8 @@ async function routeApi(request, env, pathname) {
     requireAdmin(viewer);const members=new Members(env.DB);
     if(pathname==='/api/admin/members'&&request.method==='GET')return ok(await members.list(new URL(request.url).searchParams),env);
     const target=pathname.match(/^\/api\/admin\/members\/([\w-]+)$/);
+    if(target&&request.method==='GET')return ok(await memberHistory(env.DB,target[1],viewer,Number(new URL(request.url).searchParams.get('page')||0)),env);
+    if(target&&request.method==='DELETE')return ok(await deleteEmptyMember(env.DB,target[1],await readSmallJson(request),viewer),env);
     if((pathname==='/api/admin/members'&&request.method==='POST')||(target&&request.method==='PATCH')||(pathname==='/api/admin/cohorts'&&request.method==='POST')){
       const raw=await request.text();let input;try{if(raw.length>4096)throw new Error();input=JSON.parse(raw);}catch{throw Object.assign(new Error('회원 요청 형식을 확인해 주세요.'),{status:400,code:'invalid_member'});}
       return ok(pathname==='/api/admin/cohorts'?await members.cohort(input):await members.save(target?.[1]||null,input,viewer),env,request.method==='POST'?201:200);
@@ -286,7 +289,7 @@ export default {
       ({ request, env } = pridedeskRequest(request, env));
       const url = new URL(request.url);
       if(env.PREVIEW_MODE){
-        const readOnly=request.method==='GET'&&['/api/session','/api/admin/dashboard','/api/admin/members','/api/admin/signup-code','/api/signup','/auth/login','/auth/callback'].includes(url.pathname);
+        const readOnly=request.method==='GET'&&['/api/session','/api/admin/dashboard','/api/admin/members','/api/admin/signup-code','/api/signup','/auth/login','/auth/callback'].includes(url.pathname)||request.method==='GET'&&/^\/api\/admin\/members\/[\w-]+$/.test(url.pathname);
         const allowed=(request.method==='POST'&&['/api/signup','/auth/logout'].includes(url.pathname))||(request.method==='PUT'&&url.pathname==='/api/admin/signup-code');
         if(!readOnly&&!allowed)throw Object.assign(new Error('이 테스트 환경은 지정 계정의 가입 흐름과 가입 코드 설정만 허용합니다. 업무 데이터 쓰기는 차단됩니다.'),{status:403,code:'preview_read_only'});
       }

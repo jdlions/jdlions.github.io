@@ -16,7 +16,7 @@ import { initShell } from '../shared/shell.js';
 import { customSelect, emptyState, escapeHtml, formatDate, initCustomSelect, toast, loadingState } from '../shared/ui.js';
 import { createIssuePublishing } from './issue-publishing.js';
 const editorialFiles=createEditorialFiles();
-const memberManager=createMemberManager();
+const memberManager=createMemberManager({onArticle:id=>navigation.navigate({view:'articles',article:id})});
 const overview=createAdminOverview(editorialService);
 const viewLoader=createViewLoader(editorialService);
 const issuePublishing = createIssuePublishing(() => editorialService);

@@ -13,7 +13,8 @@ export function suggestedCohort(number,now=new Date()){
 }
 export function isActivityEligible(member,now=new Date()){
   if(member.role==='teacher')return true;
-  return member.cohort!=null&&currentCohorts(now).includes(Number(member.cohort));
+  const number=String(member.studentNumber||member.student_number||schoolNumber(member));
+  return !number.startsWith('3')&&member.cohort!=null&&currentCohorts(now).includes(Number(member.cohort));
 }
 export function isNewAssignmentEligible(student){
   // Legacy display summaries lack membership metadata; server rosters always have a cohort.

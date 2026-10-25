@@ -13,5 +13,5 @@ export function filterArticleOverview(data,f={}){
   const ids=new Set(students.map(s=>s.studentId)),scopeIds=new Map(studentScope.map(s=>[s.studentId,s]));
   const counts=data.items.filter(a=>scopeIds.has(a.studentId)&&match(a,scopeIds.get(a.studentId),false));
   const byStatus={};for(const a of counts)byStatus[a.status]=(byStatus[a.status]||0)+1;
-  return {students,items:data.items.filter(a=>ids.has(a.studentId)).map(a=>({...a,native:true,matches:match(a,scopeIds.get(a.studentId))})),stats:{byStatus,total:counts.filter(a=>!f.status||a.status===f.status).length},campaigns:data.campaigns||[],nextCursor:null};
+  return {students,pendingMembers:data.pendingMembers||[],items:data.items.filter(a=>ids.has(a.studentId)).map(a=>({...a,native:true,matches:match(a,scopeIds.get(a.studentId))})),stats:{byStatus,total:counts.filter(a=>!f.status||a.status===f.status).length},campaigns:data.campaigns||[],nextCursor:null};
 }

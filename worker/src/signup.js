@@ -1,3 +1,4 @@
+import {seal,unseal} from './security.js';
 import {Members} from './members.js';
 import {signupIdentity,studentProfile} from '../../assets/js/shared/signup-identity.js';
 import {academicYear} from '../../assets/js/shared/student-identity.js';
@@ -17,19 +18,22 @@ const validCode=code=>code.length>=12&&code.length<=128&&!/[\x00-\x1f\x7f]/.test
 export class Signup {
   constructor(db,secret,now=()=>new Date()) {this.db=typeof db.withSession==='function'?db.withSession('first-primary'):db;this.secret=secret;this.now=now;this.members=new Members(this.db);}
   async settings(){
-    const r=await this.db.prepare('SELECT code_hash,enabled,version,updated_at FROM member_signup_code WHERE id=1').first();
-    return {configured:!!r.code_hash,enabled:!!r.enabled,version:r.version,updatedAt:r.updated_at};
+    const r=await this.db.prepare('SELECT code_hash,code_ciphertext,enabled,version,updated_at FROM member_signup_code WHERE id=1').first();
+    const result={configured:!!r.code_hash,enabled:!!r.enabled,version:r.version,updatedAt:r.updated_at};
+    if(r.code_ciphertext){const v=await unseal(r.code_ciphertext,this.secret);if(v?.kind==='member-signup-code'&&typeof v.code==='string')result.code=v.code;else result.displayUnavailable=true;}
+    else if(r.code_hash)result.resetRequired=true;
+    return result;
   }
   async configure(input,actor){
     if(typeof input?.enabled!=='boolean'||!Number.isInteger(input.version))throw error('가입 코드 설정을 확인해 주세요.');
     const current=await this.db.prepare('SELECT * FROM member_signup_code WHERE id=1').first();
-    let hash=current.code_hash,salt=current.salt;
+    let hash=current.code_hash,salt=current.salt,cipher=current.code_ciphertext;
     if(input.code!==undefined&&input.code!==''){
       const code=codeValue(input.code);if(!validCode(code))throw error('새 코드는 앞뒤 공백을 제외하고 12~128자로 설정해 주세요.');
-      salt=hex(crypto.getRandomValues(new Uint8Array(16)));hash=await digest(code,salt);
+      salt=hex(crypto.getRandomValues(new Uint8Array(16)));hash=await digest(code,salt);cipher=await seal({kind:'member-signup-code',code},this.secret);
     }
     if(input.enabled&&!hash)throw error('먼저 새 가입 코드를 설정해 주세요.');
-    const result=await this.db.prepare('UPDATE member_signup_code SET code_hash=?,salt=?,enabled=?,version=version+1,updated_at=?,updated_by=? WHERE id=1 AND version=?').bind(hash,salt,input.enabled?1:0,this.now().toISOString(),actor.memberId,input.version).run();
+    const result=await this.db.prepare('UPDATE member_signup_code SET code_hash=?,salt=?,code_ciphertext=?,enabled=?,version=version+1,updated_at=?,updated_by=? WHERE id=1 AND version=?').bind(hash,salt,cipher,input.enabled?1:0,this.now().toISOString(),actor.memberId,input.version).run();
     if((result.meta?.changes??result.changes)!==1)throw error('다른 관리자가 변경했습니다. 새로고침해 주세요.',409,'signup_code_conflict');
     return this.settings();
   }
