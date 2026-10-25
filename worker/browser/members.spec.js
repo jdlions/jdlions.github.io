@@ -14,6 +14,7 @@ async function setup(page){
  await page.goto('/admin/');await expect(page.locator('[data-dashboard-refresh]')).toBeVisible();return {writes};
 }
 for(const width of [390,820,1440])test('members native admin navigation, registration, editing and responsive modal '+width,async({page},info)=>{
+ await page.addInitScript(()=>{let saved=false,closed=false;document.addEventListener('close',()=>{closed=true;},true);const send=window.fetch.bind(window);window.fetch=(input,init)=>{const path=new URL(typeof input==='string'?input:input.url,location.href).pathname;if(path==='/api/admin/members'){if(init?.method==='POST'){saved=true;closed=false;}else if((!init?.method||init.method==='GET')&&saved){window.__memberReloadAfterClose=closed;saved=false;}}return send(input,init);};});
  await page.setViewportSize({width,height:900});const s=await setup(page);
  if(width<768)await page.getByRole('button',{name:'메뉴 열기'}).click();await page.locator('[data-admin-view=members]').click();
  await expect(page.locator('[data-view=members]')).toBeVisible();await expect(page.locator('[data-view=dashboard]')).toBeHidden();await expect(page.locator('.member-card')).toContainText('학생 <img src=x>');await expect(page.locator('.member-card img')).toHaveCount(0);
@@ -21,7 +22,7 @@ for(const width of [390,820,1440])test('members native admin navigation, registr
  await dialog.locator('[name=name]').fill('새 학생');await dialog.locator('[name=email]').fill('h2621002@joongdong.hs.kr');await dialog.locator('[name=studentNumber]').fill('21002');await expect(dialog.locator('[name=cohort]')).toHaveValue('35');
  await dialog.locator('[name=cohort]').selectOption('36');await dialog.locator('[name=studentNumber]').fill('21003');await expect(dialog.locator('[name=cohort]')).toHaveValue('36');
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);await page.screenshot({path:info.outputPath('members-dialog.png'),animations:'disabled'});
- await dialog.getByRole('button',{name:'저장',exact:true}).click();await expect(dialog).toHaveCount(0);await expect(page.locator('.member-card')).toHaveCount(2);expect(s.writes[0].cohort).toBe('36');expect(s.writes[0].active).toBe(true);
+ await dialog.getByRole('button',{name:'저장',exact:true}).click();await expect(dialog).toHaveCount(0);await expect(page.locator('.member-card')).toHaveCount(2);expect(s.writes[0].cohort).toBe('36');expect(s.writes[0].active).toBe(true);expect(await page.evaluate(()=>window.__memberReloadAfterClose)).toBe(true);
  await page.locator('[data-edit-member=new]').click();await page.getByRole('dialog').locator('[name=active]').selectOption('false');await page.getByRole('dialog').getByRole('button',{name:'저장',exact:true}).click();await expect(page.locator('.member-card').filter({hasText:'새 학생'})).toContainText('비활성');
  await page.locator('[data-member-search]').fill('11001');await expect(page.locator('.member-card')).toHaveCount(1);await page.reload();await expect(page.locator('[data-view=members]')).toBeVisible();
  if(width<768)await page.getByRole('button',{name:'메뉴 열기'}).click();await page.locator('[data-admin-view=dashboard]').click();await expect(page.locator('[data-dashboard-refresh]')).toBeVisible();await page.goBack();await expect(page.locator('[data-view=members]')).toBeVisible();

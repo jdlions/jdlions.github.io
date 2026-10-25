@@ -76,3 +76,11 @@ test('new assignment reference committed after eligibility read blocks DELETE wi
 test('3xxxx verified current number wins assignment exclusion even when older stored cohort disagrees',async t=>{
  const{members}=fixture(t);const row=await members.save(null,student,actor);await members.login({sub:'123',email:student.email,name:'31001 가상학생'});const after=await members.get(row.id);assert.equal(after.student_number,'31001');assert.equal(after.cohort,36);assert.equal(isActivityEligible(after),false);assert.equal(after.active,1);
 });
+import{privateOutputPath}from'../../scripts/plan-existing-members.mjs';
+import{mkdtempSync,symlinkSync,unlinkSync,rmdirSync,existsSync,realpathSync}from'node:fs';import{tmpdir}from'node:os';import{join,resolve}from'node:path';import{fileURLToPath}from'node:url';
+test('private registration plan cannot enter repository from subdirectories, dot-prefix names or external junctions',async t=>{
+ const repo=fileURLToPath(new URL('../../',import.meta.url)),temp=mkdtempSync(join(tmpdir(),'pridedesk-private-path-')),link=join(temp,'repo-link');
+ let linked=false;t.after(()=>{if(linked)unlinkSync(link);rmdirSync(temp);});symlinkSync(repo,link,process.platform==='win32'?'junction':'dir');linked=true;
+ for(const path of [join(repo,'member-plan.json'),join(repo,'..member-plan.json'),resolve(repo,'worker','../member-plan.json'),join(link,'member-plan.json')])await assert.rejects(privateOutputPath(path),/private_output_required/);
+ assert.equal(await privateOutputPath(join(temp,'private-plan.json')),join(realpathSync(temp),'private-plan.json'));assert.equal(existsSync(join(repo,'member-plan.json')),false);assert.equal(existsSync(join(repo,'..member-plan.json')),false);
+});
