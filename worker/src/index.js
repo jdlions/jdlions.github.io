@@ -188,8 +188,8 @@ async function routeApi(request, env, pathname) {
     requireStudent(viewer);const suggestion=profileSuggestion(viewer),input=await readSmallJson(request);
     if(!suggestion?.studentNumber||input.studentNumber!==suggestion.studentNumber||input.confirmed!==true)throw Object.assign(new Error('현재 Google 학번을 확인해 주세요.'),{status:400,code:'profile_conflict'});
     const now=new Date().toISOString();let result;
-    try{result=await env.DB.prepare('UPDATE members SET student_number=?,auth_version=auth_version+1,updated_at=?,changed_by=? WHERE id=? AND auth_version=? AND active=1 AND google_sub=? AND student_number=?').bind(suggestion.studentNumber,now,'profile:'+viewer.sub,viewer.memberId,viewer.authVersion,viewer.sub,viewer.studentNumber).run();}catch{throw Object.assign(new Error('학번을 갱신할 수 없습니다. 관리자에게 문의해 주세요.'),{status:409,code:'profile_conflict'});}
-    if((result.meta?.changes??result.changes)!==1)throw Object.assign(new Error('회원 정보가 변경되었습니다. 다시 로그인해 주세요.'),{status:409,code:'profile_conflict'});
+    try{result=await env.DB.prepare('UPDATE members SET student_number=?,auth_version=auth_version+1,updated_at=?,changed_by=? WHERE id=? AND auth_version=? AND active=1 AND google_sub=? AND student_number=? RETURNING id').bind(suggestion.studentNumber,now,'profile:'+viewer.sub,viewer.memberId,viewer.authVersion,viewer.sub,viewer.studentNumber).first();}catch{throw Object.assign(new Error('학번을 갱신할 수 없습니다. 관리자에게 문의해 주세요.'),{status:409,code:'profile_conflict'});}
+    if(!result)throw Object.assign(new Error('회원 정보가 변경되었습니다. 다시 로그인해 주세요.'),{status:409,code:'profile_conflict'});
     const value=await seal({...viewer,studentNumber:suggestion.studentNumber,authVersion:viewer.authVersion+1},env.SESSION_SECRET);
     return ok({updated:true},env,200,{'Set-Cookie':setCookie(SESSION_COOKIE,value,Math.max(1,Math.floor((viewer.exp-Date.now())/1000)))});
   }

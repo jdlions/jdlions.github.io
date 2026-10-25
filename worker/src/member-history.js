@@ -1,4 +1,4 @@
-import{identityReferences}from'./member-references.js';
+import{identityReferences,unresolvedMemberOwnersSql}from'./member-references.js';
 import{Members}from'./members.js';
 import{academicYear}from'../../assets/js/shared/student-identity.js';
 const failure=(message,status=409,code='member_history_protected')=>Object.assign(new Error(message),{status,code});
@@ -9,13 +9,16 @@ export async function memberHistory(db,id,actor,page=0){
  if(!Number.isInteger(page)||page<0||page>100000)throw failure('잘못된 기록 페이지입니다.',400,'invalid_history_page');
  const keys=[...new Set([m.id,m.email,'member:'+m.id,...(m.google_sub?[m.google_sub,'oauth:'+m.google_sub,'signup:'+m.google_sub]:[])].filter(Boolean))];
  const keySql=keys.map(()=>'(?)').join(',');
- const checks=Object.entries(identityReferences).map(([table,columns])=>`SELECT '${table}' tableName,COUNT(*) n FROM ${table} WHERE ${columns.map(c=>`${c} IN (SELECT value FROM identity_keys)`).join(' OR ')}`).join(' UNION ALL ');
- const references=Object.fromEntries((await rows(db,`WITH identity_keys(value) AS (VALUES ${keySql}) ${checks}`,keys)).map(r=>[r.tableName,Number(r.n)]));
+ const checks=Object.entries(identityReferences).map(([table,columns])=>`(SELECT COUNT(*) FROM ${table} WHERE ${columns.map(c=>`${c} IN (SELECT value FROM identity_keys)`).join(' OR ')}) AS "${table}"`).join(',');
+ const references=await db.prepare(`WITH identity_keys(value) AS (VALUES ${keySql}) SELECT ${checks}`).bind(...keys).first();
  // Check unknown identity columns in one schema query; schema changes fail closed.
- const columns=await rows(db,"SELECT m.name tableName,p.name columnName FROM sqlite_master m JOIN pragma_table_info(m.name) p WHERE m.type='table' AND m.name NOT LIKE 'sqlite_%'");
+ const tables=await rows(db,"SELECT name FROM sqlite_master WHERE type='table' AND name NOT GLOB 'sqlite_*' AND name!='_cf_METADATA'");
+ let uncertain=tables.some(t=>!/^[a-z_]+$/.test(t.name));
+ const safe=tables.filter(t=>/^[a-z_]+$/.test(t.name));
+ const schema=await db.batch(safe.map(t=>db.prepare(`PRAGMA table_info("${t.name}")`)));
  const special=new Set(['members','member_audit','member_deletion_audit','member_legacy_students']);
- let uncertain=columns.some(c=>!special.has(c.tableName)&&!['slack_user_id','owner_slack_user_id'].includes(c.columnName)&&/(?:^|_)(student_id|google_id|google_sub|user_id|member_id|actor_id|owner_id|updated_by|created_by|uploaded_by)$/.test(c.columnName)&&!identityReferences[c.tableName]?.includes(c.columnName));
- const unresolved=Number((await db.prepare('SELECT COUNT(*) n FROM member_legacy_students WHERE resolved_member_id IS NULL').first()).n);
+ uncertain ||= safe.some((t,i)=>!special.has(t.name)&&schema[i].results.some(c=>!['slack_user_id','owner_slack_user_id'].includes(c.name)&&/(?:^|_)(student_id|google_id|google_sub|user_id|member_id|actor_id|owner_id|updated_by|created_by|uploaded_by)$/.test(c.name)&&!identityReferences[t.name]?.includes(c.name)));
+ const unresolved=Number((await db.prepare('SELECT COUNT(*) n FROM member_legacy_students WHERE resolved_member_id IS NULL').first()).n)+Number((await db.prepare(unresolvedMemberOwnersSql).first()).n);
  const audit=Number((await db.prepare("SELECT COUNT(*) n FROM member_audit WHERE (member_id=? AND action!='registered') OR actor IN (?,?,?,?)").bind(m.id,m.id,m.google_sub,'oauth:'+m.google_sub,'signup:'+m.google_sub).first()).n);
  const external=Number((await db.prepare('SELECT COUNT(*) n FROM member_legacy_students WHERE resolved_member_id=? OR google_sub=?').bind(m.id,m.google_sub).first()).n);
  uncertain ||= unresolved>0||!!m.pending;
@@ -39,7 +42,7 @@ export async function memberHistory(db,id,actor,page=0){
  if(uncertain)reasons.push('기존 학생 이메일 연결 대기 또는 알 수 없는 참조 관계');
  const registration=await db.prepare("SELECT actor FROM member_audit WHERE member_id=? AND action='registered' ORDER BY id LIMIT 1").bind(m.id).first();
  const grade=m.cohort?academicYear()-1990-m.cohort+1:null;
- return {member:{pending:!!m.pending,id:m.id,name:m.name,email:m.email,role:m.role,studentNumber:m.student_number,cohort:m.cohort,active:!!m.active,linked:!!m.google_sub,createdAt:m.created_at,updatedAt:m.updated_at,lastLoginAt:m.last_login_at,registration:registration?.actor.startsWith('signup:')?'코드 가입':registration?.actor.startsWith('legacy:')?'기존 학생 사전 등록':registration?.actor.startsWith('migration:')?'초기 관리자 이전':registration?'관리자 등록':'등록 방식 확인 필요',version:m.auth_version,grade},counts,activities,page,hasMore:Object.values(counts).some(n=>n>(page+1)*50),references,deletion:{allowed:!reasons.length,state:reasons.length?(uncertain?'review':'blocked'):'eligible',reasons},legacyComplete:unresolved===0};
+ return {member:{pending:!!m.pending,id:m.id,name:m.name,email:m.email,role:m.role,studentNumber:m.student_number,cohort:m.cohort,active:!!m.active,linked:!m.pending&&!!m.google_sub,createdAt:m.created_at,updatedAt:m.updated_at,lastLoginAt:m.last_login_at,registration:registration?.actor.startsWith('signup:')?'코드 가입':registration?.actor.startsWith('legacy:')?'기존 학생 사전 등록':registration?.actor.startsWith('migration:')?'초기 관리자 이전':registration?'관리자 등록':'등록 방식 확인 필요',version:m.auth_version,grade},counts,activities,page,hasMore:Object.values(counts).some(n=>n>(page+1)*50),references,deletion:{allowed:!reasons.length,state:reasons.length?(uncertain?'review':'blocked'):'eligible',reasons},legacyComplete:unresolved===0};
 }
 export async function deleteEmptyMember(db,id,input,actor){
  const m=await new Members(db).get(id);if(!m)throw failure('회원을 찾을 수 없습니다.',404,'member_not_found');
@@ -49,8 +52,8 @@ export async function deleteEmptyMember(db,id,input,actor){
   if(input?.confirmation!=='영구 삭제'||input.memberId!==id||input.email!==m.email||input.version!==m.auth_version||id===actor.memberId||m.role!=='student')throw failure('대상 이메일, 회원 ID와 영구 삭제 확인을 확인해 주세요.');
   if(!(await memberHistory(db,id,actor)).deletion.allowed)throw failure('연결 기록이 있거나 확인이 끝나지 않아 삭제할 수 없습니다.');
   // D1 batch is atomic; BEFORE DELETE rechecks every business reference at commit.
-  const out=await db.batch([db.prepare("UPDATE member_deletion_audit SET outcome='deleted' WHERE id=?").bind(auditId),db.prepare("DELETE FROM members WHERE id=? AND role='student' AND auth_version=? AND email=?").bind(id,input.version,input.email)]);
-  if((out[1].meta?.changes??out[1].changes)!==1)throw failure('회원이 변경되었습니다. 다시 확인해 주세요.');
+  const out=await db.batch([db.prepare("UPDATE member_deletion_audit SET outcome='deleted' WHERE id=?").bind(auditId),db.prepare("DELETE FROM members WHERE id=? AND role='student' AND auth_version=? AND email=? RETURNING id").bind(id,input.version,input.email)]);
+  if(out[1].results?.length!==1||out[1].results[0].id!==id)throw failure('회원이 변경되었습니다. 다시 확인해 주세요.');
   return {id,deleted:true};
  }catch(e){await db.prepare("UPDATE member_deletion_audit SET outcome='blocked' WHERE id=?").bind(auditId).run();if(e.status)throw e;throw failure('참조 기록을 안전하게 확인할 수 없어 삭제하지 않았습니다.');}
 }
