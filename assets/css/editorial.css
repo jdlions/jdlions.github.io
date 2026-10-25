@@ -199,3 +199,5 @@ dialog{font-family:inherit}
 .member-dialog [data-student-field][hidden]{display:none;}
 
 [data-code-field][hidden],.member-dialog [hidden]{display:none}.member-dialog [data-member-history]{overflow-wrap:anywhere}.member-detail-trigger{text-align:left;font-weight:600}
+
+[data-current-code]{white-space:pre-wrap;overflow-wrap:anywhere}[data-member-card]{cursor:pointer}
