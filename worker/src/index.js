@@ -1,3 +1,4 @@
+import {photoUploadDiagnostics} from './photo-upload-diagnostics.js';
 import {memberHistory,deleteEmptyMember} from './member-history.js';
 import {Signup,SIGNUP_COOKIE,profileSuggestion} from './signup.js';
 import {memberRecipient} from './member-assignments.js';
@@ -10,7 +11,7 @@ import {isNewAssignmentEligible} from '../../assets/js/shared/student-identity.j
 import { clearCookie, cookie, randomToken, requireTrustedOrigin, sanitizeHtml, seal, setCookie, STATE_COOKIE, SESSION_COOKIE, unseal } from './security.js';
 import {articleListOptions,listArticlePage} from './article-list.js';
 import {routeEditorialFiles} from './editorial-files.js';
-import { photoUploadDiagnostics, driveThumbnail, driveFolderPreflight, exchangeCode, streamDriveImage, uploadToDrive } from './google.js';
+import { driveThumbnail, driveFolderPreflight, exchangeCode, streamDriveImage, uploadToDrive } from './google.js';
 import { repository } from './repository.js';
 import { DOCX_MIME, MAX_DOCX_BYTES, parseDocx } from './docx.js';
 import { pridedeskRequest } from './pridedesk-proxy.js';

@@ -28,3 +28,41 @@ PR 코드가 승인된 격리 테스트 환경에 배포돼 있고, 그 환경�
 ## 검증 및 남은 조건
 
 격리 DB/Google mock으로 학생 token 사용, 기사 없는 두 유형 업로드, 기존 행 보존, IDOR, CSRF, 진단의 scope/403/404/누락/timeout 처리와 비밀정보 비노출을 검증한다. 실제 실패 학생의 API 토큰 응답과 실제 Drive 업로드는 아직 미검증이다. 운영 배포/PR 병합/OAuth 설정/Drive 공유 변경은 수행하지 않는다. 원인이 해결됐거나 운영 제출이 정상화됐다고 간주하지 않는다.
+## 실계정 HTTP 404 이후 최소 수정안 (실행 전 검토)
+
+2026-10-30 확인: 운영 Worker의 폴더 ID와 Drive 메타데이터의 실제 폴더 ID는 모두 `1eMyFE3z4WVLbZf89RuJz90M3v-J4Jbxd`이며 폴더명은 The Lion's Pride - Photo Submissions이다. 폴더는 존재하고 My Drive 폴더다. API에는 supportsAllDrives=true가 이미 포함된다. 연결된 Drive 계정에서 반환된 폴더 URL에는 resourcekey가 없지만, 이를 실패 학생 토큰의 접근 증명으로 사용하지 않는다.
+
+사용자 실계정 결과: tokeninfo 200 / OAuth client 일치 / drive.file 승인 / 폴더 GET 404 / 동일 학생의 Drive 브라우저 업로드 성공. 즉 유효한 token과 사용자 ACL이 있어도 앱 token의 대상 파일 접근이 허용된다는 뜻은 아니다. 404는 부재와 접근 불가를 함께 의미하며, isAppAuthorized/canAddChildren은 404에서 미확인이다. 오류 reason notFound도 안전 allowlist에 추가하고 앱에서 폴더를 확인하지 못했다는 문구로 표시한다. 삭제/ACL 부족/앱 미승인을 404 하나로 확정하지 않는다.
+
+현재 증거는 drive.file의 파일별 앱 접근 제한에 부합한다. 과거 broad drive.readonly 승인과 include_granted_scopes=true 조합이 폴더 조회에 영향을 줬을 가능성은 있지만 이전 실제 token scope가 없어 PR #59와의 인과관계는 확정하지 않는다. include_granted_scopes를 되돌려 과거 Classroom/Directory/Drive 권한까지 결합하거나 drive/drive.readonly를 추가하지 않는다.
+
+### 우선안: 기존 폴더를 Google Picker로 명시 승인
+
+- 대상은 **기존 제출 폴더 한 개**다. 교체/생성/이동/공유 ACL 수정은 하지 않는다. 학생별 사용자·앱·파일 승인이므로 관리자 한 명의 승인으로 모든 학생에게 적용된다고 가정하지 않는다.
+- 공식 Web Picker의 setSelectFolderEnabled(true), 폴더 MIME 필터, setFileIds([configuredFolderId])로 대상 폴더를 안내한다. callback에서 다른 ID를 선택하면 거부하고, 실제 제출 대상은 계속 서버 설정 폴더만 사용한다.
+- Picker가 성공했다고 클라이언트 boolean만 신뢰하지 않는다. **기존 학생 세션 token**으로 서버가 같은 폴더 GET/isAppAuthorized/canAddChildren을 다시 확인한 후 제출하도록 한다. 다른 Google 계정으로 Picker를 열었다면 기존 세션 검증이 성공하지 않는 한 연결 완료로 처리하지 않는다. DB에 가짜 승인 상태를 저장하지 않는다.
+- 사진은 기존 학생 OAuth로 업로드하고 기사 검색 없이 피처/학교 UI를 유지한다. 폴더 승인으로 하위 모든 기존 파일까지 재귀 승인됐다고 가정하지 않는다.
+
+### 구현 전에 필요한 설정·보안 결정
+
+표준 Web Picker는 공식 Google JS에 OAuth access token을 전달하는 구조다. 현재 HttpOnly 세션의 token을 브라우저로 꺼내는 API는 추가하지 않는다. 구현하려면 별도 drive.file 전용 단기 browser token을 메모리에서 Picker에만 쓰는 방식 등의 보안 승인이 필요하다. 토큰은 local/session storage·URL·로그에 저장하지 않는다. 현재 코드에는 이 흐름을 추가하지 않았다.
+
+같은 Google Cloud 프로젝트의 Picker API 활성화 여부, OAuth client의 JavaScript origin, project number(App ID), HTTP referrer/API 제한된 Picker API key도 확인·승인해야 한다. 이번 작업에서 Google 설정/키를 생성·수정하지 않는다. 일반 로그인 scope와 흐름은 유지한다.
+
+Google의 trigger_onepick OAuth redirect 문서는 desktop/mobile 경로로 구분돼 있다. 이를 기존 Web client에서 검증 없이 지원된다고 가정해 배포하지 않는다. Web Picker의 보안·설정 조건을 수용할 수 없을 때만 관리자 전용 서버 연결을 대안으로 비교한다. 그 경우에도 OAuth Playground나 새 Refresh Token을 현재 기능의 필수 조건으로 강요하지 않는다.
+
+### 실제 업로드 검증 절차
+
+1. 승인된 테스트 환경에서 같은 실패 학생으로 로그인하고 기존 진단 결과(token 200, drive.file, 폴더 404)를 기록한다. token/cookie/email은 수집하지 않는다.
+2. Picker에서 기존 설정 폴더만 선택한다. 취소·다른 폴더·다른 계정 선택은 연결 완료로 처리하지 않는지 확인한다.
+3. 기존 학생 token의 폴더 GET 200 및 canAddChildren=true를 확인한다. isAppAuthorized도 관측값 그대로 기록하고, 필드가 없으면 추정하지 않는다. 동일 token에서 404가 유지되면 업로드 복구 성공으로 보고하지 않는다.
+4. 별도 테스트 파일 생성 승인 후 식별 가능한 작은 PNG를 피처/학교로 각각 한 번씩 제출한다. 기사 ID 없이 제출되고 원래 폴더 부모 ID·원본 바이트/크기·D1 작성자·유형을 확인한다. 기존 사진·연결 행은 불변인지 확인한다.
+5. 다른 학생의 조회/원본 접근 차단 및 관리자 조회를 확인한다. 실제 Google 승인/두 업로드/조회가 모두 통과하기 전에는 해결 완료라고 보고하지 않는다. 기존 자료를 삭제하는 정리 작업은 하지 않는다.
+
+근거:
+- https://developers.google.com/workspace/drive/api/guides/api-specific-auth
+- https://developers.google.com/workspace/drive/api/guides/handle-errors#notFound
+- https://developers.google.com/workspace/drive/picker/guides/web-picker-sample
+- https://developers.google.com/workspace/drive/picker/reference/picker.docsview.setselectfolderenabled
+- https://developers.google.com/workspace/drive/picker/reference/picker.view.setfileids
+- https://developers.google.com/workspace/drive/picker/guides/overview

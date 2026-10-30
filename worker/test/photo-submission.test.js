@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import worker from '../src/index.js';import{memberDatabase,memberToken}from'./member-fixture.js';import{SESSION_COOKIE}from'../src/security.js';import{photoStudentSummary,studentPhotos}from'../src/admin-overview.js';import{photoUploadDiagnostics}from'../src/google.js';
+import worker from '../src/index.js';import{memberDatabase,memberToken}from'./member-fixture.js';import{SESSION_COOKIE}from'../src/security.js';import{photoStudentSummary,studentPhotos}from'../src/admin-overview.js';import{photoUploadDiagnostics}from'../src/photo-upload-diagnostics.js';
 const pixel=new Uint8Array([137,80,78,71]);
 async function fixture(t){const f=memberDatabase();t.after(()=>f.sql.close());const env={DB:f.db,SESSION_SECRET:'photo-test',GOOGLE_CLIENT_ID:'client',GOOGLE_CLIENT_SECRET:'secret',DRIVE_UPLOAD_FOLDER_ID:'private-folder'};
  const cookie=await memberToken(env,{sub:'student',accessToken:'student-token',exp:Date.now()+60000},'student');
