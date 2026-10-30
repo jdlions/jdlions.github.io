@@ -12,13 +12,14 @@ export async function articleStudentOverview(db,roster=[]){
     x.article_type articleType,a.id,a.title_ko titleKo,a.title_en titleEn,a.status,a.updated_at updatedAt,a.submitted_at submittedAt
     FROM scope x LEFT JOIN articles a ON a.id=x.article_id LEFT JOIN assignment_campaigns c ON c.id=x.campaign_id`);
   const names=new Map(roster.map(s=>[s.id,s.name]));
-  const students=new Map(roster.filter(isNewAssignmentEligible).map(s=>[s.id,{studentId:s.id,name:s.name||s.id}])),items=[],campaigns=new Map(),seen=new Set();
+  const students=new Map(roster.filter(isNewAssignmentEligible).filter(s=>s.identityState!=='unlinked').map(s=>[s.id,{studentId:s.id,name:s.name||s.id}])),items=[],campaigns=new Map(),seen=new Set();
   for(const row of scope){
     if(!students.has(row.studentId))students.set(row.studentId,{studentId:row.studentId,name:names.get(row.studentId)||row.studentName||row.studentId});
     if(row.campaignId)campaigns.set(row.campaignId,{id:row.campaignId,name:row.assignmentName});
     if(row.id&&!seen.has(row.id)){seen.add(row.id);const {studentName,...item}=row;items.push({...item,authorName:students.get(row.studentId).name});}
   }
-  return {students:[...students.values()],items,campaigns:[...campaigns.values()]};
+  const pendingMembers=roster.filter(s=>s.identityState==='unlinked').map(s=>({id:s.id,name:s.name}));
+  return {students:[...students.values()],pendingMembers,items,campaigns:[...campaigns.values()]};
 }
 export async function dashboardSummary(db){
   const campaignQuery=async()=>{

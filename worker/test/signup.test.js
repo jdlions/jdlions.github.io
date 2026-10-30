@@ -20,7 +20,7 @@ test('signup starts disabled; code hashing, safe settings, rotation and existing
  const {signup,sql,members}=fixture(t);assert.deepEqual(await signup.settings(),{configured:false,enabled:false,version:0,updatedAt:null});
  await assert.rejects(signup.register(identity(),input()),e=>e.code==='signup_code_invalid');
  await enabled(signup);const stored=sql.prepare('SELECT * FROM member_signup_code').get();assert(!JSON.stringify(stored).includes(code));assert.equal(stored.code_hash.length,64);assert.equal(stored.salt.length,32);
- const first=await signup.register(identity(),input());assert.equal(first.role,'student');assert.equal(sql.prepare('SELECT count(*) n FROM member_audit WHERE member_id=?').get(first.memberId).n,1);
+ const first=await signup.register(identity(),input());assert.equal(first.role,'student');assert.equal(sql.prepare('SELECT count(*) n FROM member_audit WHERE member_id=?').get(first.memberId).n,2);
  await signup.configure({code:'replacement-fixture-code',enabled:true,version:1},actor);
  await assert.rejects(signup.register(identity(2),input(2)),e=>e.code==='signup_code_invalid');
  await signup.configure({enabled:false,version:2},actor);
@@ -50,7 +50,7 @@ test('disabled and manually registered members cannot enter new-registration pat
  const row=await members.save(null,{name:'기존학생',email:identity().email,role:'student',studentNumber:'11001',cohort:36,active:false},actor);
  await assert.rejects(signup.register(identity(),input()),e=>e.status===403);assert.equal((await members.get(row.id)).google_sub,null);
  const restored=await members.save(row.id,{name:'기존학생',email:identity().email,role:'student',studentNumber:'11001',cohort:36,active:true,version:row.version},actor);
- const login=await members.login(identity(),{allowUnknown:true});assert.equal(login.memberId,restored.id);assert.equal(login.name,'기존학생');
+ const login=await members.login(identity(),{allowUnknown:true});assert.equal(login.memberId,restored.id);assert.equal(login.name,'가상학생');
  assert.equal(sql.prepare('SELECT count(*) n FROM members').get().n,2);
 });
 test('code attempts are durably limited per verified account, regardless of new pending cookies',async t=>{

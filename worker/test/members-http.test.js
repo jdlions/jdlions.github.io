@@ -23,7 +23,7 @@ test('member HTTP routes enforce registered roles, CSRF, Origin, no-delete and s
  for(const body of [null,[],{}, {...input,email:'new@gmail.com'}])assert.equal((await send('/api/admin/members','POST',body)).status,400);
  const created=await send('/api/admin/members','POST',input);assert.equal(created.status,201);const member=await created.json();assert.equal(member.linked,false);
  assert.equal((await send('/api/admin/members','POST',input)).status,409);
- assert.equal((await send('/api/admin/members/'+member.id,'DELETE')).status,405);
+ assert.equal((await send('/api/admin/members/'+member.id,'DELETE',{})).status,409);
  const changed=await send('/api/admin/members/'+member.id,'PATCH',{...input,active:false,version:member.version});assert.equal(changed.status,200);
  assert.equal((await send('/api/admin/members/'+member.id,'PATCH',{...input,version:member.version})).status,409);
  assert.equal((await send('/api/admin/cohorts','POST',{number:37})).status,201);

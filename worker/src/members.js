@@ -1,3 +1,5 @@
+import {studentProfile} from '../../assets/js/shared/signup-identity.js';
+import {academicYear} from '../../assets/js/shared/student-identity.js';
 import {currentCohorts,isActivityEligible} from '../../assets/js/shared/student-identity.js';
 import {memberRecipient,resolveMemberAssignments} from './member-assignments.js';
 const failure=(message,status=403,code='membership_required')=>Object.assign(new Error(message),{status,code});
@@ -27,7 +29,7 @@ export class Members {
     // The caller must first verify Google's signature/audience/nonce/hd/email.
     const email=identity.email.toLowerCase();
     let row=await this.db.prepare('SELECT * FROM members WHERE google_sub=? OR email=? ORDER BY id').bind(identity.sub,email).all();
-    if(!row.results.length&&allowUnknown)return null;
+    if(!row.results.length&&allowUnknown){const legacy=await this.db.prepare('SELECT * FROM member_legacy_students WHERE google_sub=? AND resolved_member_id IS NULL').bind(identity.sub).first();if(!legacy)return null;await this.claimLegacy(legacy,identity);return this.login(identity);}
     if(row.results.length!==1)throw failure('등록된 활성 회원만 이용할 수 있습니다. 관리자에게 문의해 주세요.');
     row=row.results[0];
     if(!row.active||row.email!==email||(row.google_sub&&row.google_sub!==identity.sub))throw failure('등록 정보와 Google 계정이 일치하지 않습니다. 관리자에게 문의해 주세요.');
@@ -38,11 +40,36 @@ export class Members {
       row=await this.get(row.id);
       if(!row?.active||row.google_sub!==identity.sub||row.email!==email)throw failure('회원 정보가 변경되었습니다. 다시 로그인해 주세요.');
     }else if(row.role==='student')await this.db.batch(resolveMemberAssignments(this.db,row.id));
+    await this.db.prepare('UPDATE member_legacy_students SET resolved_member_id=? WHERE google_sub=? AND resolved_member_id IS NULL').bind(row.id,identity.sub).run();
+    const now=new Date().toISOString(),profile=studentProfile(identity.name);
+    const sync=row.role==='student'&&profile.studentNumber&&profile.name.length<=100&&!/[\x00-\x1f\x7f]/.test(profile.name);
+    try{
+      if(sync&&(row.student_number!==profile.studentNumber||row.name!==profile.name)){
+        await this.db.prepare('UPDATE members SET name=?,student_number=?,auth_version=auth_version+1,last_login_at=?,updated_at=?,changed_by=? WHERE id=? AND google_sub=? AND active=1 AND auth_version=?').bind(profile.name,profile.studentNumber,now,now,'oauth:'+identity.sub,row.id,identity.sub,row.auth_version).run();
+      }else await this.db.prepare('UPDATE members SET last_login_at=? WHERE id=? AND google_sub=? AND active=1').bind(now,row.id,identity.sub).run();
+    }catch(e){if(!/UNIQUE/.test(String(e.message)))throw e; /* Collision: keep both students unchanged. */}
+    row=await this.get(row.id);
+    if(!row?.active||row.google_sub!==identity.sub||row.email!==email)throw failure('회원 정보가 변경되었습니다. 다시 로그인해 주세요.');
     return {memberId:row.id,authVersion:row.auth_version,membershipVersion:MEMBERSHIP_VERSION,role:row.role==='teacher'?'admin':'student',studentId:row.role==='student'?identity.sub:null,name:row.name,email:row.email};
+  }
+  async claimLegacy(legacy,identity){
+    // Only the verified JWT sub may claim a staged legacy owner. Never match a name/number.
+    const match=/^h(\d{2})\d{5}@joongdong\.hs\.kr$/.exec(identity.email);
+    if(!match)throw failure('기존 학생의 학교 이메일을 확인해 주세요. 관리자에게 문의해 주세요.',409,'legacy_identity_review');
+    const cohort=2000+Number(match[1])-1990,profile=studentProfile(identity.name),grade=academicYear()-1990-cohort+1;
+    if(cohort<10||grade<1)throw failure('입학 연도를 확인해 주세요.',409,'legacy_identity_review');
+    const name=(profile.studentNumber?profile.name:legacy.name||profile.name||'').trim(),number=profile.studentNumber||legacy.student_number||null;
+    if(!name||name.length>100||/[\x00-\x1f\x7f]/.test(name))throw failure('기존 학생 이름을 확인해 주세요.',409,'legacy_identity_review');
+    const id='legacy-'+identity.sub,now=new Date().toISOString();
+    try{await this.db.batch([
+      this.db.prepare('INSERT OR IGNORE INTO member_cohorts(number,created_at) VALUES(?,?)').bind(cohort,now),
+      this.db.prepare("INSERT INTO members(id,google_sub,email,name,role,student_number,cohort,active,created_at,updated_at,linked_at,changed_by) SELECT ?,?,?,?,'student',?,?,1,?,?,?,? FROM member_legacy_students WHERE google_sub=? AND resolved_member_id IS NULL").bind(id,identity.sub,identity.email,name,number,cohort,now,now,now,'legacy:verified-google-login',identity.sub),
+      this.db.prepare('UPDATE member_legacy_students SET resolved_member_id=? WHERE google_sub=? AND resolved_member_id IS NULL AND EXISTS(SELECT 1 FROM members WHERE id=? AND google_sub=?)').bind(id,identity.sub,id,identity.sub)
+    ]);}catch{const winner=await this.db.prepare('SELECT id FROM members WHERE google_sub=? AND email=? AND active=1').bind(identity.sub,identity.email).first();if(winner)return;throw failure('기존 회원과 계정 연결이 충돌했습니다. 관리자에게 문의해 주세요.',409,'legacy_identity_conflict');}
   }
   async roster({forAssignment=false}={}){
     const {results}=await this.db.prepare("SELECT id,google_sub,student_number,name,cohort FROM members WHERE role='student' AND active=1 ORDER BY student_number,id").all();
-    return results.filter(r=>!forAssignment||isActivityEligible(r)).map(r=>({id:r.google_sub||memberRecipient(r.id),memberId:r.id,name:`${r.student_number} ${r.name}`,studentNumber:r.student_number,cohort:r.cohort}));
+    return results.filter(r=>!forAssignment||isActivityEligible(r)).map(r=>({id:r.google_sub||memberRecipient(r.id),memberId:r.id,name:`${r.student_number?r.student_number+' ':''}${r.name}`,studentNumber:r.student_number,cohort:r.cohort,linked:!!r.google_sub,identityState:r.google_sub?'linked':'unlinked'}));
   }
   async list(params){
     const q=String(params.get('q')||'').trim();if(q.length>100)throw failure('검색어는 100자 이하로 입력해 주세요.',400,'invalid_member_search');
@@ -52,10 +79,11 @@ export class Members {
     const sort=params.get('sort')||'default';if(!['default','recent'].includes(sort))throw failure('정렬을 확인해 주세요.',400,'invalid_member_search');
     const order=sort==='recent'?'created_at DESC,id':'role DESC,cohort DESC,student_number,name,id';
     const {results}=await this.db.prepare("SELECT * FROM members WHERE (?='' OR role=?) AND (?='' OR cohort=?) AND (name LIKE ? ESCAPE '!' OR email LIKE ? ESCAPE '!' OR student_number LIKE ? ESCAPE '!') ORDER BY "+order).bind(role,role,cohort,cohort,like,like,like).all();
+    const pending=(await this.db.prepare("SELECT l.* FROM member_legacy_students l WHERE l.resolved_member_id IS NULL AND NOT EXISTS(SELECT 1 FROM members m WHERE m.google_sub=l.google_sub) ORDER BY l.student_number,l.google_sub").all()).results;
     const activity=params.get('activity')||'current';
     if(!['current','all'].includes(activity))throw failure('활동 범위를 확인해 주세요.',400,'invalid_member_search');
     const stored=(await this.db.prepare('SELECT number FROM member_cohorts ORDER BY number DESC').all()).results.map(r=>r.number);
-    return {members:results.filter(r=>activity==='all'||isActivityEligible(r)).map(mapped),cohorts:[...new Set([...stored,...currentCohorts()])].sort((a,b)=>b-a)};
+    return {members:[...results.filter(r=>activity==='all'||isActivityEligible(r)).map(mapped),...(activity==='all'&&!cohort&&(!role||role==='student')?pending.filter(r=>!q||[r.name||'',r.student_number||''].some(v=>v.includes(q))).map(r=>({id:'legacy-'+r.google_sub,name:r.name||'이름 확인 필요',email:null,role:'student',studentNumber:r.student_number,cohort:null,active:true,linked:false,pending:true,createdAt:r.imported_at,updatedAt:r.imported_at,version:0})):[])],cohorts:[...new Set([...stored,...currentCohorts()])].sort((a,b)=>b-a)};
   }
   async save(id,input,actor){
     const v=validateMember(input),now=new Date().toISOString();
