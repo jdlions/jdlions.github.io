@@ -1,3 +1,4 @@
+import {photoUploadDiagnostics} from './photo-upload-diagnostics.js';
 import {memberHistory,deleteEmptyMember} from './member-history.js';
 import {Signup,SIGNUP_COOKIE,profileSuggestion} from './signup.js';
 import {memberRecipient} from './member-assignments.js';
@@ -270,6 +271,7 @@ async function routeApi(request, env, pathname) {
   const nativeStatus=pathname.match(/^\/api\/native\/articles\/([^/]+)\/status$/);
   if(nativeStatus&&request.method==='PATCH'){requireAdmin(viewer);const found=await repo.getNativeArticle(nativeStatus[1]),input=await request.json();if(!found)throw Object.assign(new Error('Article not found.'),{status:404,code:'article_not_found'});if(!nativeStatuses.has(input.status)||input.status==='draft')throw Object.assign(new Error('Invalid article status.'),{status:400,code:'invalid_status'});return ok(nativeForViewer(await repo.setNativeStatus(found,input.status,viewer.sub),viewer),env);}
   if(pathname==='/api/photos'&&request.method==='GET')return ok((await repo.listPhotos(viewer.role==='student'?viewer.studentId:null)).map(photoForClient),env);
+  if(pathname==='/api/photos/upload-diagnostics'&&request.method==='POST'){requireStudent(viewer);return ok(await photoUploadDiagnostics(env.DRIVE_UPLOAD_FOLDER_ID,viewer.accessToken,env.GOOGLE_CLIENT_ID),env);}
   if(pathname==='/api/photos/folder-status'&&request.method==='GET'){requireAdmin(viewer);const folder=await driveFolderPreflight(env.DRIVE_UPLOAD_FOLDER_ID,viewer.accessToken);return ok({accessible:true,canAddChildren:folder.canAddChildren,storage:folder.driveId?'shared_drive':'my_drive'},env);}
   const photoStatus=pathname.match(/^\/api\/photos\/([^/]+)\/status$/);
   if(photoStatus&&request.method==='PATCH'){requireAdmin(viewer);const input=await request.json();if(!['unreviewed','approved','hold','rejected'].includes(input.status))throw Object.assign(new Error('Invalid photo status.'),{status:400,code:'invalid_status'});return ok(await repo.updatePhotoStatus(photoStatus[1],input.status),env);}
