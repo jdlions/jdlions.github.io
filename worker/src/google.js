@@ -108,7 +108,9 @@ export async function driveFolderPreflight(folderId, token) {
 }
 
 export async function uploadToDrive(file, folderId, token) {
-  await driveFolderPreflight(folderId, token);
+  // drive.file can create a child even when files.get cannot read its existing
+  // parent. Let files.create enforce the user's permission on the fixed target.
+  if (!folderId) throw Object.assign(new Error('Drive upload folder is not configured.'), { status: 503, code: 'drive_folder_unconfigured' });
   const boundary = `lp-${crypto.randomUUID()}`;
   const metadata = JSON.stringify({ name: file.name, parents: [folderId] });
   const body = new Blob([`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n--${boundary}\r\nContent-Type: ${file.type}\r\n\r\n`, file, `\r\n--${boundary}--`]);
