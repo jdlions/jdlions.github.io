@@ -10,7 +10,7 @@ import {isNewAssignmentEligible} from '../../assets/js/shared/student-identity.j
 import { clearCookie, cookie, randomToken, requireTrustedOrigin, sanitizeHtml, seal, setCookie, STATE_COOKIE, SESSION_COOKIE, unseal } from './security.js';
 import {articleListOptions,listArticlePage} from './article-list.js';
 import {routeEditorialFiles} from './editorial-files.js';
-import { photoDriveToken, driveThumbnail, driveFolderPreflight, exchangeCode, streamDriveImage, uploadToDrive } from './google.js';
+import { photoUploadDiagnostics, driveThumbnail, driveFolderPreflight, exchangeCode, streamDriveImage, uploadToDrive } from './google.js';
 import { repository } from './repository.js';
 import { DOCX_MIME, MAX_DOCX_BYTES, parseDocx } from './docx.js';
 import { pridedeskRequest } from './pridedesk-proxy.js';
@@ -23,7 +23,6 @@ export function validateStudentPhoto(file, photoType) {
   if (!(file instanceof File) || !allowedPhotoTypes.has(file.type) || !file.size || file.size > 15 * 1024 * 1024 || file.name.length>255 || /[\x00-\x1f\x7f\/\\]/.test(file.name)) throw Object.assign(new Error('Upload a JPEG, PNG, or WebP file no larger than 15 MB.'), { status: 400, code: 'invalid_photo' });
 }
 const standalonePhoto=photo=>!photo.article_id&&['student-photo:school','student-photo:feature'].includes(photo.issue_id);
-const photoToken=(photo,viewer,env)=>standalonePhoto(photo)?photoDriveToken(env):viewer.accessToken;
 const scopes = [
   'openid', 'email', 'profile',
   'https://www.googleapis.com/auth/drive.file'
@@ -273,21 +272,22 @@ async function routeApi(request, env, pathname) {
   const nativeStatus=pathname.match(/^\/api\/native\/articles\/([^/]+)\/status$/);
   if(nativeStatus&&request.method==='PATCH'){requireAdmin(viewer);const found=await repo.getNativeArticle(nativeStatus[1]),input=await request.json();if(!found)throw Object.assign(new Error('Article not found.'),{status:404,code:'article_not_found'});if(!nativeStatuses.has(input.status)||input.status==='draft')throw Object.assign(new Error('Invalid article status.'),{status:400,code:'invalid_status'});return ok(nativeForViewer(await repo.setNativeStatus(found,input.status,viewer.sub),viewer),env);}
   if(pathname==='/api/photos'&&request.method==='GET')return ok((await repo.listPhotos(viewer.role==='student'?viewer.studentId:null)).map(photoForClient),env);
-  if(pathname==='/api/photos/folder-status'&&request.method==='GET'){requireAdmin(viewer);const folder=await driveFolderPreflight(env.DRIVE_UPLOAD_FOLDER_ID,await photoDriveToken(env));return ok({accessible:true,canAddChildren:folder.canAddChildren,storage:folder.driveId?'shared_drive':'my_drive'},env);}
+  if(pathname==='/api/photos/upload-diagnostics'&&request.method==='POST'){requireStudent(viewer);return ok(await photoUploadDiagnostics(env.DRIVE_UPLOAD_FOLDER_ID,viewer.accessToken,env.GOOGLE_CLIENT_ID),env);}
+  if(pathname==='/api/photos/folder-status'&&request.method==='GET'){requireAdmin(viewer);const folder=await driveFolderPreflight(env.DRIVE_UPLOAD_FOLDER_ID,viewer.accessToken);return ok({accessible:true,canAddChildren:folder.canAddChildren,storage:folder.driveId?'shared_drive':'my_drive'},env);}
   const photoStatus=pathname.match(/^\/api\/photos\/([^/]+)\/status$/);
   if(photoStatus&&request.method==='PATCH'){requireAdmin(viewer);const input=await request.json();if(!['unreviewed','approved','hold','rejected'].includes(input.status))throw Object.assign(new Error('Invalid photo status.'),{status:400,code:'invalid_status'});return ok(await repo.updatePhotoStatus(photoStatus[1],input.status),env);}
   const thumbnail=pathname.match(/^\/api\/photos\/([^/]+)\/thumbnail$/);
-  if(thumbnail&&request.method==='GET'){const photo=await authorizePhotoViewer(repo,thumbnail[1],viewer);return photoContentResponse(photo,await photoToken(photo,viewer,env),driveThumbnail);}
+  if(thumbnail&&request.method==='GET'){const photo=await authorizePhotoViewer(repo,thumbnail[1],viewer);return photoContentResponse(photo,viewer.accessToken,driveThumbnail);}
   const photoContent=pathname.match(/^\/api\/photos\/([^/]+)\/content$/);
-  if(photoContent&&request.method==='GET'){const photo=await authorizePhotoViewer(repo,photoContent[1],viewer);return photoContentResponse(photo,await photoToken(photo,viewer,env));}
+  if(photoContent&&request.method==='GET'){const photo=await authorizePhotoViewer(repo,photoContent[1],viewer);return photoContentResponse(photo,viewer.accessToken);}
   const photoOriginal=pathname.match(/^\/api\/photos\/([^/]+)\/original$/);
-  if(photoOriginal&&request.method==='GET'){const photo=await authorizePhotoViewer(repo,photoOriginal[1],viewer);if(standalonePhoto(photo))return photoContentResponse(photo,await photoDriveToken(env));return new Response(null,{status:302,headers:{Location:`https://drive.google.com/open?id=${encodeURIComponent(photo.drive_file_id)}`,'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer'}});}
+  if(photoOriginal&&request.method==='GET'){const photo=await authorizePhotoViewer(repo,photoOriginal[1],viewer);if(standalonePhoto(photo))return photoContentResponse(photo,viewer.accessToken);return new Response(null,{status:302,headers:{Location:`https://drive.google.com/open?id=${encodeURIComponent(photo.drive_file_id)}`,'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer'}});}
   if(pathname==='/api/photos/upload'&&request.method==='POST'){
     requireStudent(viewer);const form=await request.formData(),file=form.get('file'),photoType=String(form.get('photoType')||'');
     if(form.get('copyright')!=='true')throw Object.assign(new Error('Rights confirmation is required.'),{status:400,code:'rights_confirmation_required'});
     validateStudentPhoto(file,photoType);
     if(form.get('articleSubmissionId')||form.get('articleId'))throw Object.assign(new Error('사진 유형만 선택해 주세요.'),{status:400,code:'article_link_not_supported'});
-    const drive=await uploadToDrive(file,env.DRIVE_UPLOAD_FOLDER_ID,await photoDriveToken(env));
+    const drive=await uploadToDrive(file,env.DRIVE_UPLOAD_FOLDER_ID,viewer.accessToken);
     const photo={issueId:'student-photo:'+photoType,articleSubmissionId:'',articleId:null,studentGoogleId:viewer.studentId,driveFileId:drive.id,filename:drive.name,mimeType:drive.mimeType,byteSize:Number(drive.size||file.size),caption:String(form.get('caption')||'').slice(0,1000),photographer:String(form.get('photographer')||'').slice(0,200),sourceType:String(form.get('sourceType')||'').slice(0,100),rightsConfirmed:true};
     return ok(photoForClient(await createPhotoAfterDrive(repo,photo)),env,201);
   }
