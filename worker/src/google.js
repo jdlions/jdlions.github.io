@@ -73,7 +73,7 @@ export async function streamDriveImage(fileId, token) {
 const DRIVE_FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder';
 const SAFE_DRIVE_REASONS = new Set([
   'accessNotConfigured', 'appNotAuthorizedToFile', 'dailyLimitExceeded', 'domainPolicy',
-  'fileNotFound', 'insufficientFilePermissions', 'rateLimitExceeded', 'sharingRateLimitExceeded',
+  'fileNotFound', 'insufficientPermissions', 'insufficientFilePermissions', 'rateLimitExceeded', 'sharingRateLimitExceeded',
   'storageQuotaExceeded', 'teamDriveFileLimitExceeded', 'userRateLimitExceeded'
 ]);
 
@@ -102,7 +102,7 @@ export async function driveFolderPreflight(folderId, token) {
   if (!response.ok) { const safe = await safeDriveError(response); throw driveAppError('folder', safe.upstreamStatus, safe.reason); }
   const folder = await response.json();
   if (folder.mimeType !== DRIVE_FOLDER_MIME_TYPE) throw Object.assign(new Error('Configured Drive target is not a folder.'), { status: 503, code: 'drive_folder_not_accessible' });
-  if (folder.capabilities?.canAddChildren !== true) throw Object.assign(new Error('The current account cannot add files to the Drive upload folder.'), { status: 403, code: 'drive_permission_denied' });
+  if (folder.capabilities?.canAddChildren !== true) throw Object.assign(new Error('The current account cannot add files to the Drive upload folder.'), { status: 403, code: 'drive_permission_denied', upstreamStatus:200, reason:'cannotAddChildren' });
   return { id: folder.id, name: folder.name, mimeType: folder.mimeType, driveId: folder.driveId || null, canAddChildren: true };
 }
 
@@ -115,4 +115,15 @@ export async function uploadToDrive(file, folderId, token) {
   const response = await fetchGoogle(`${GOOGLE_API}/upload/drive/v3/files?${query}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/related; boundary=${boundary}` }, body });
   if (!response.ok) { const safe = await safeDriveError(response); throw driveAppError('upload', safe.upstreamStatus, safe.reason); }
   return response.json();
+}
+
+// Dedicated publisher credential, never the student's Drive identity. No fallback.
+export async function photoDriveToken(env){
+  if(!env.PHOTO_DRIVE_REFRESH_TOKEN||!env.GOOGLE_CLIENT_ID||!env.GOOGLE_CLIENT_SECRET)throw Object.assign(new Error('사진 저장소의 서버 연결 설정이 필요합니다.'),{status:503,code:'photo_storage_unconfigured'});
+  const body=new URLSearchParams({grant_type:'refresh_token',refresh_token:env.PHOTO_DRIVE_REFRESH_TOKEN,client_id:env.GOOGLE_CLIENT_ID,client_secret:env.GOOGLE_CLIENT_SECRET});
+  const response=await fetchGoogle('https://oauth2.googleapis.com/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});
+  if(!response.ok){await response.body?.cancel();throw Object.assign(new Error('사진 저장소 인증을 갱신할 수 없습니다. 관리자에게 문의해 주세요.'),{status:503,code:'photo_storage_auth_failed',upstreamStatus:response.status});}
+  const tokens=await response.json();
+  if(!tokens.access_token||String(tokens.token_type).toLowerCase()!=='bearer')throw Object.assign(new Error('사진 저장소 인증 응답을 확인할 수 없습니다.'),{status:503,code:'photo_storage_auth_failed'});
+  return tokens.access_token;
 }
