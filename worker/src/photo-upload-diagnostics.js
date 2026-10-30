@@ -5,7 +5,7 @@ const fetchGoogle=(url,init)=>fetchWithTimeout(url,init,20000,()=>Object.assign(
 const SAFE_DRIVE_REASONS = new Set([
   'invalid_token', 'invalid_request', 'ACCESS_TOKEN_SCOPE_INSUFFICIENT', 'SERVICE_DISABLED', 'PERMISSION_DENIED', 'UNAUTHENTICATED',
   'accessNotConfigured', 'appNotAuthorizedToFile', 'dailyLimitExceeded', 'domainPolicy',
-  'fileNotFound', 'insufficientPermissions', 'insufficientFilePermissions', 'rateLimitExceeded', 'sharingRateLimitExceeded',
+  'notFound', 'fileNotFound', 'insufficientPermissions', 'insufficientFilePermissions', 'rateLimitExceeded', 'sharingRateLimitExceeded',
   'storageQuotaExceeded', 'teamDriveFileLimitExceeded', 'userRateLimitExceeded'
 ]);
 

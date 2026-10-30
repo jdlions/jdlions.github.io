@@ -72,8 +72,9 @@ export async function streamDriveImage(fileId, token) {
 
 const DRIVE_FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder';
 const SAFE_DRIVE_REASONS = new Set([
+  'ACCESS_TOKEN_SCOPE_INSUFFICIENT', 'SERVICE_DISABLED', 'PERMISSION_DENIED', 'UNAUTHENTICATED',
   'accessNotConfigured', 'appNotAuthorizedToFile', 'dailyLimitExceeded', 'domainPolicy',
-  'fileNotFound', 'insufficientFilePermissions', 'rateLimitExceeded', 'sharingRateLimitExceeded',
+  'notFound', 'fileNotFound', 'insufficientPermissions', 'insufficientFilePermissions', 'rateLimitExceeded', 'sharingRateLimitExceeded',
   'storageQuotaExceeded', 'teamDriveFileLimitExceeded', 'userRateLimitExceeded'
 ]);
 
@@ -81,7 +82,7 @@ async function safeDriveError(response) {
   let reason = '';
   try {
     const body = await response.json();
-    const candidate = body?.error?.errors?.[0]?.reason || body?.error?.status || '';
+    const candidate = body?.error?.errors?.[0]?.reason || body?.error?.details?.find(d=>SAFE_DRIVE_REASONS.has(d?.reason))?.reason || body?.error?.status || '';
     if (SAFE_DRIVE_REASONS.has(candidate)) reason = candidate;
   } catch {}
   return { upstreamStatus: response.status, reason };
@@ -102,12 +103,14 @@ export async function driveFolderPreflight(folderId, token) {
   if (!response.ok) { const safe = await safeDriveError(response); throw driveAppError('folder', safe.upstreamStatus, safe.reason); }
   const folder = await response.json();
   if (folder.mimeType !== DRIVE_FOLDER_MIME_TYPE) throw Object.assign(new Error('Configured Drive target is not a folder.'), { status: 503, code: 'drive_folder_not_accessible' });
-  if (folder.capabilities?.canAddChildren !== true) throw Object.assign(new Error('The current account cannot add files to the Drive upload folder.'), { status: 403, code: 'drive_permission_denied' });
+  if (folder.capabilities?.canAddChildren !== true) throw Object.assign(new Error('The current account cannot add files to the Drive upload folder.'), { status: 403, code: 'drive_permission_denied', upstreamStatus:200, reason:'cannotAddChildren' });
   return { id: folder.id, name: folder.name, mimeType: folder.mimeType, driveId: folder.driveId || null, canAddChildren: true };
 }
 
 export async function uploadToDrive(file, folderId, token) {
-  await driveFolderPreflight(folderId, token);
+  // drive.file can create a child even when files.get cannot read its existing
+  // parent. Let files.create enforce the user's permission on the fixed target.
+  if (!folderId) throw Object.assign(new Error('Drive upload folder is not configured.'), { status: 503, code: 'drive_folder_unconfigured' });
   const boundary = `lp-${crypto.randomUUID()}`;
   const metadata = JSON.stringify({ name: file.name, parents: [folderId] });
   const body = new Blob([`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n--${boundary}\r\nContent-Type: ${file.type}\r\n\r\n`, file, `\r\n--${boundary}--`]);

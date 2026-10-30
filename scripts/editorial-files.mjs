@@ -47,7 +47,6 @@ export const editorialFiles = [
   'assets/js/shared/shell.js',
   'assets/js/shared/dialog.js',
   'assets/js/shared/photo-preview.js',
-  'assets/js/shared/photo-upload-diagnostics.js',
   'assets/js/shared/request-timeout.js',
   'assets/js/shared/view-loader.js',
   'assets/js/shared/article-list.js',

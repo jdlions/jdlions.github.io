@@ -41,11 +41,8 @@ test('search debounce, stale response exclusion and filter reset',async({page})=
  await page.locator('[data-campaign-filter]').locator('..').locator('button').first().click();await page.locator('[role=option][data-value=free]').click();await expect(page.locator('[data-page-range]')).toHaveText('1–20 / 33');
  await page.locator('[data-page-next]').click();await expect(page.locator('[data-open]')).toHaveCount(13);await expect(page.locator('[data-page-next]')).toBeDisabled();s.sql.close();
 });
-test('student list and photo picker page/search without fetching full list or roster',async({page})=>{
- const s=await setup(page,'student');await page.locator('[data-page-next]').click();await expect(page.locator('[data-page-range]')).toHaveText('21–40 / 65');
- await page.locator('[data-open-upload]').first().click();const modal=page.locator('[data-upload-modal]');await expect(modal.locator('[name=articleSubmissionId] option')).toHaveCount(20);
- await modal.locator('[data-page-next]').click();await expect(modal.locator('[data-page-range]')).toHaveText('21–40');expect(s.calls.some(x=>x.pathname==='/api/photos/upload')).toBe(false);await modal.locator('[data-query]').fill('Title 0');await expect(modal.locator('[name=articleSubmissionId] option')).toHaveCount(1);await expect(modal.locator('[name=articleSubmissionId]')).toHaveValue('a000');
- expect(s.calls.filter(x=>x.pathname==='/api/native/articles').every(x=>x.searchParams.get('page')==='1')).toBe(true);expect(s.calls.some(x=>x.pathname.includes('classroom'))).toBe(false);expect(s.calls.some(x=>x.searchParams.get('picker')==='1')).toBe(true);s.sql.close();
+test('student photo dialog has only school/feature categories and never requests an article picker',async({page})=>{
+ const s=await setup(page,'student');await page.locator('[data-open-upload]').first().click();const modal=page.locator('[data-upload-modal]');await expect(modal.locator('[name=photoType] option')).toHaveCount(2);await expect(modal.locator('[name=photoType]')).toHaveValue('feature');await expect(modal.locator('[data-query], [data-article-picker], [name=articleSubmissionId]')).toHaveCount(0);expect(s.calls.some(x=>x.searchParams.get('picker')==='1')).toBe(false);s.sql.close();
 });
 test('390px list controls and pagination stay within viewport',async({page})=>{
  await page.setViewportSize({width:390,height:800});const s=await setup(page);

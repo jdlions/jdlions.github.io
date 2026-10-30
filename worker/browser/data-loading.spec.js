@@ -40,8 +40,8 @@ test('session timeout offers retry and permits fresh sign-in',async({page})=>{
  await expect(page.locator('#login-message')).toContainText('세션을 확인하지 못했습니다');await expect(page.locator('[data-google-login]')).toBeEnabled();
  stalled=false;await page.locator('#login-message button').click();await expect(page.locator('#login-message')).toBeHidden();
 });
-test('summary list opens full detail and lazy photo upload still has article choices',async({page})=>{
+test('summary list opens full detail and photo upload needs no article fetch',async({page})=>{
  const calls=await setup(page,'student');await expect(page.locator('[data-open]')).toBeVisible();
  await page.locator('[data-open]').click();await expect(page.locator('[data-editor]')).toHaveText('Full detail');expect(calls.filter(x=>x==='/api/native/articles/a')).toHaveLength(1);
- await page.locator('[data-open-upload]').first().click();await expect(page.locator('[name=articleSubmissionId] option')).toHaveText('Summary title');
+ await page.locator('[data-open-upload]').first().click();await expect(page.locator('[name=photoType] option')).toHaveText(['피처 (Feature)','학교 (School)']);await expect(page.locator('[name=articleSubmissionId],[data-article-picker]')).toHaveCount(0);
 });

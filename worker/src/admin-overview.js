@@ -41,23 +41,27 @@ export async function dashboardSummary(db){
 }
 export async function photoStudentSummary(db){
   return rows(db,`WITH scope AS (
-    SELECT i.student_id,i.article_id,s.article_type,i.campaign_id,r.student_name
+    SELECT i.student_id,i.article_id,s.article_type,i.campaign_id,r.student_name,0 photo_only
     FROM assignment_slot_instances i JOIN assignment_slots s ON s.id=i.slot_id
     JOIN assignment_recipients r ON r.campaign_id=i.campaign_id AND r.student_id=i.student_id
-    UNION ALL SELECT a.student_id,a.id,a.article_type,NULL,a.student_id FROM articles a
+    UNION ALL SELECT a.student_id,a.id,a.article_type,NULL,a.student_id,0 FROM articles a
       WHERE NOT EXISTS(SELECT 1 FROM assignment_slot_instances i WHERE i.article_id=a.id)
+    UNION ALL SELECT DISTINCT p.student_google_id,NULL,substr(p.issue_id,15),NULL,
+      COALESCE((SELECT COALESCE(m.student_number||' ','')||m.name FROM members m WHERE m.google_sub=p.student_google_id),p.student_google_id),1
+      FROM photos p WHERE p.article_id IS NULL AND p.issue_id IN ('student-photo:school','student-photo:feature')
   ) SELECT x.student_id studentId,MAX(x.student_name) studentName,x.article_type articleType,x.campaign_id campaignId,
     c.name campaignName,COUNT(p.id) photoCount,
     SUM(CASE WHEN p.status='unreviewed' THEN 1 ELSE 0 END) unreviewed,
     SUM(CASE WHEN p.status='approved' THEN 1 ELSE 0 END) approved,
     SUM(CASE WHEN p.status='hold' THEN 1 ELSE 0 END) hold,
     SUM(CASE WHEN p.status='rejected' THEN 1 ELSE 0 END) rejected
-    FROM scope x LEFT JOIN photos p ON p.article_id=x.article_id LEFT JOIN assignment_campaigns c ON c.id=x.campaign_id
+    FROM scope x LEFT JOIN photos p ON (x.photo_only=0 AND p.article_id=x.article_id) OR
+      (x.photo_only=1 AND p.article_id IS NULL AND p.student_google_id=x.student_id AND p.issue_id='student-photo:'||x.article_type) LEFT JOIN assignment_campaigns c ON c.id=x.campaign_id
     GROUP BY x.student_id,x.article_type,x.campaign_id ORDER BY studentName,x.student_id,x.article_type`);
 }
 export async function studentPhotos(db,studentId){
   if(!studentId||studentId.length>200)throw Object.assign(new Error('Invalid student.'),{status:400,code:'invalid_student'});
-  return rows(db,`SELECT p.*,a.article_type articleType,c.name campaignName FROM photos p JOIN articles a ON a.id=p.article_id
+  return rows(db,`SELECT p.*,COALESCE(a.article_type,CASE WHEN p.issue_id IN ('student-photo:school','student-photo:feature') THEN substr(p.issue_id,15) END) articleType,c.name campaignName FROM photos p LEFT JOIN articles a ON a.id=p.article_id
     LEFT JOIN assignment_slot_instances i ON i.article_id=a.id LEFT JOIN assignment_campaigns c ON c.id=i.campaign_id
-    WHERE a.student_id=? ORDER BY p.created_at DESC,p.id DESC`,[studentId]);
+    WHERE p.student_google_id=? AND (a.id IS NOT NULL OR p.issue_id IN ('student-photo:school','student-photo:feature')) ORDER BY p.created_at DESC,p.id DESC`,[studentId]);
 }
