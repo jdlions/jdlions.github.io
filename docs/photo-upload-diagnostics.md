@@ -9,3 +9,9 @@
 - `includeGrantedScopesRequested=false`는 현재 로그인 요청의 옵션을 기록한 것으로, 오류 원인이라는 판정이 아니다. Google Drive 브라우저 업로드 성공과 API의 앱별 파일 접근은 구분한다. 진단 결과 전까지 해결됐다고 판단하지 않는다.
 
 진단 완료 후 최소 제거 PR에서 `assets/js/shared/photo-upload-diagnostics.js`, `worker/src/photo-upload-diagnostics.js`, 해당 전용 테스트/이 문서를 제거한다. scripts/editorial-files.mjs의 진단 모듈 항목, student-app import/초기화 한 줄씩, student/index.html의 진단 button/result, worker/index.js의 import와 진단 route만 제거한다. 업로드·기사 선택·회원·D1/Google 설정은 수정하지 않는다. 관련 테스트 후 Worker → 동일 commit Vercel 순서로 배포한다. 다른 변경이 진행됐다면 전체 commit을 맹목적으로 revert하지 말고 위 연결점만 제거한다.
+
+## Runtime 실패 수정
+
+초기 진단의 `redirect:error`는 Node에서 허용되지만 workerd에서는 TypeError로 거절됐다. Google outbound 요청 0건 상태에서 두 Promise가 reject됐고, 공통 catch가 둘 다 diagnostic_unavailable로 표시했다. `manual`로 수정하고 3xx를 직접 차단한다. 실제 workerd + outbound mock에서 호출/리디렉션 차단을 검증한다. 기존 업로드/Google OAuth/Drive ACL은 수정하지 않는다.
+
+결과는 각 조회별 request(전송/runtime), google_http(Google HTTP status/reason), response_body(JSON/body 처리), diagnostic_internal(내부 오류) 단계로 구분한다. HTTP 수신 후 JSON 실패에도 원래 HTTP 상태를 보존한다. 프런트→PrideDesk API의 401/403/404/500 및 네트워크/timeout은 별도 표시한다. 예외는 허용된 타입 이름만 표시하고 message/stack/Google 원문은 노출하지 않는다. Google 권한의 실제 원인은 수정 후 학생 실계정 응답으로 다시 확인한다.
