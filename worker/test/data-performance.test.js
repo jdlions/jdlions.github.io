@@ -18,7 +18,7 @@ test('committed photo metadata survives a failed response read without deleting 
  const f=fixture();t.after(()=>f.sql.close());
  const article=await f.repo.createNativeArticle({articleType:'school',titleKo:'Fixture',titleEn:'',contentHtml:''},'student');
  const prepare=f.db.prepare;
- f.db.prepare=query=>{const stmt=prepare(query);if(query==='SELECT * FROM photos WHERE id=?')stmt.first=async()=>{throw new Error('read connection lost after INSERT');};return stmt;};
+ f.db.prepare=query=>{const stmt=prepare(query);if(query==='SELECT * FROM photos WHERE id=? AND is_deleted=0')stmt.first=async()=>{throw new Error('read connection lost after INSERT');};return stmt;};
  let driveCalls=0;t.mock.method(globalThis,'fetch',async()=>{driveCalls++;throw new Error('No destructive cleanup allowed');});
  const photo={issueId:'native',articleSubmissionId:article.id,articleId:article.id,studentGoogleId:'student',driveFileId:'fixture-private-original',filename:'fixture.png',mimeType:'image/png',byteSize:4,caption:'',photographer:'',sourceType:'',rightsConfirmed:true};
  await assert.rejects(createPhotoAfterDrive(f.repo,photo),e=>e.code==='photo_metadata_save_failed');
