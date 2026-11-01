@@ -1,3 +1,4 @@
+import {scheduleActivity,recordPresence,recordAttempt,recordOutcome,submissionType,errorOutcome,activityOverview,pruneActivity} from './student-activity.js';
 import {memberHistory,deleteEmptyMember} from './member-history.js';
 import {Signup,SIGNUP_COOKIE,profileSuggestion} from './signup.js';
 import {memberRecipient} from './member-assignments.js';
@@ -178,6 +179,27 @@ export async function photoContentResponse(photo, token, stream = streamDriveIma
 
 async function routeApi(request, env, pathname) {
   const viewer = await session(request, env);
+  if(viewer.role==='student')scheduleActivity(env,()=>recordPresence(env.DB,viewer.memberId));
+  const type=viewer.role==='student'?submissionType(pathname,request.method):null;
+  const id=type?crypto.randomUUID():null,attemptAt=new Date().toISOString();
+  const begun=type?scheduleActivity(env,()=>recordAttempt(env.DB,viewer.memberId,type,id,attemptAt)):null;
+  try{
+    const result=await routeApiWork(request,env,pathname,viewer);
+    if(type){const at=new Date().toISOString();scheduleActivity(env,async()=>{await begun;await recordOutcome(env.DB,viewer.memberId,type,id,result.ok?'success':errorOutcome(result.status),at);});}
+    return result;
+  }catch(error){
+    if(type){const at=new Date().toISOString();scheduleActivity(env,async()=>{await begun;await recordOutcome(env.DB,viewer.memberId,type,id,errorOutcome(error.status||500),at);});}
+    throw error;
+  }
+}
+async function routeApiWork(request,env,pathname,viewer){
+  if(pathname==='/api/admin/student-activity'&&request.method==='GET'){requireAdmin(viewer);return ok(await activityOverview(env.DB),env);}
+  if(pathname==='/api/activity/assignment-view'&&request.method==='POST'){
+    requireStudent(viewer);
+    const assigned=await env.DB.prepare('SELECT 1 FROM assignment_slot_instances WHERE student_id IN (?,?) LIMIT 1').bind(viewer.studentId,memberRecipient(viewer.memberId)).first();
+    if(assigned)scheduleActivity(env,()=>recordPresence(env.DB,viewer.memberId,Date.now(),'assignment_view'));
+    return response(null,204,env);
+  }
   if(pathname.startsWith('/api/editorial-files/'))return routeEditorialFiles(request,env,viewer,pathname);
   if (pathname === '/api/session' && request.method === 'GET') return ok({ authenticated: true, user: { id: viewer.sub, name: viewer.name, email: viewer.email, role: viewer.role, studentId: viewer.studentId,profileUpdate:profileSuggestion(viewer) } }, env);
   if (['/api/members/roster','/api/classroom/students'].includes(pathname) && request.method === 'GET') { requireAdmin(viewer); return ok({students:await new Members(env.DB).roster({forAssignment:true})},env); }
@@ -295,7 +317,9 @@ async function routeApi(request, env, pathname) {
 }
 
 export default {
-  async fetch(request, env) {
+  async scheduled(event,env,context){context.waitUntil(pruneActivity(env.DB));},
+  async fetch(request, env, context) {
+    env={...env,ACTIVITY_WAIT_UNTIL:context?.waitUntil?.bind(context)};
     try {
       ({ request, env } = pridedeskRequest(request, env));
       const url = new URL(request.url);
