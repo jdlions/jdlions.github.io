@@ -43,7 +43,7 @@ export async function driveThumbnail(fileId, token) {
   if(!DRIVE_IMAGE_TYPES.has(file?.mimeType)||!file.thumbnailLink)throw unavailable();
   let url;try{url=new URL(file.thumbnailLink);}catch{throw unavailable();}
   if(url.protocol!=='https:'||url.username||url.password||url.port||!(url.hostname==='googleusercontent.com'||url.hostname.endsWith('.googleusercontent.com')))throw unavailable();
-  const response=await fetchWithTimeout(url.href,{headers:{Authorization:`Bearer ${token}`},redirect:'error'},120000,()=>Object.assign(new Error('사진 미리보기 시간이 초과되었습니다.'),{status:504,code:'google_timeout'}));
+  const response=await fetchWithTimeout(url.href,{headers:{Authorization:`Bearer ${token}`},redirect:'manual'},120000,()=>Object.assign(new Error('사진 미리보기 시간이 초과되었습니다.'),{status:504,code:'google_timeout'}));
   const contentType=(response.headers.get('content-type')||'').split(';')[0].trim().toLowerCase();
   const maximum=1024*1024;
   if(!response.ok||!DRIVE_IMAGE_TYPES.has(contentType)||Number(response.headers.get('content-length'))>maximum){await response.body?.cancel();throw unavailable();}
@@ -60,7 +60,7 @@ export async function streamDriveImage(fileId, token) {
   if (!response.ok) {
     await response.body?.cancel();
     const status = response.status === 404 ? 404 : response.status === 401 || response.status === 403 ? 403 : 502;
-    throw Object.assign(new Error('Google Drive image could not be loaded.'), { status, code: status === 404 ? 'photo_content_not_found' : status === 403 ? 'photo_content_forbidden' : 'photo_content_unavailable' });
+    throw Object.assign(new Error('사진을 읽을 수 없습니다. 파일 부재 또는 앱 접근 제한일 수 있습니다. Drive 원본 열기를 확인해 주세요.'), { status, code: status === 404 ? 'photo_content_not_found' : status === 403 ? 'photo_content_forbidden' : 'photo_content_unavailable' });
   }
   const contentType = String(response.headers.get('content-type') || '').split(';', 1)[0].trim().toLowerCase();
   if (!DRIVE_IMAGE_TYPES.has(contentType)) {

@@ -19,6 +19,8 @@ export function normalizePhoto(row) {
     rightsConfirmed: Boolean(row.rightsConfirmed ?? row.rights_confirmed ?? true),
     thumbnailUrl: row.thumbnailUrl || (row.id ? `/api/photos/${encodeURIComponent(row.id)}/thumbnail` : ''),
     contentUrl: row.contentUrl || (row.id ? `/api/photos/${encodeURIComponent(row.id)}/content` : ''),
+    previewUrl: row.previewUrl || (row.id ? `/api/photos/${encodeURIComponent(row.id)}/preview` : ''),
+    downloadUrl: row.downloadUrl || (row.id ? `/api/photos/${encodeURIComponent(row.id)}/download` : ''),
     originalUrl: row.originalUrl || (row.id ? `/api/photos/${encodeURIComponent(row.id)}/original` : ''),
     createdAt: row.createdAt ?? row.created_at,
     updatedAt: row.updatedAt ?? row.updated_at

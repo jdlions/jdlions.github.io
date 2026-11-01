@@ -150,12 +150,12 @@ export async function createPhotoAfterDrive(repo, photo) {
 export function photoForClient(row) {
   if (!row) return row;
   const id = encodeURIComponent(row.id);
-  return { ...row, ...(standalonePhoto(row)?{articleType:row.issue_id.slice(14)}:{}), rightsConfirmed: Boolean(row.rights_confirmed ?? row.rightsConfirmed ?? true), thumbnailUrl: `/api/photos/${id}/thumbnail`, contentUrl: `/api/photos/${id}/content`, originalUrl: `/api/photos/${id}/original` };
+  return { ...row, ...(standalonePhoto(row)?{articleType:row.issue_id.slice(14)}:{}), rightsConfirmed: Boolean(row.rights_confirmed ?? row.rightsConfirmed ?? true), thumbnailUrl: `/api/photos/${id}/thumbnail`, contentUrl: `/api/photos/${id}/content`, originalUrl: `/api/photos/${id}/original`, previewUrl:`/api/photos/${id}/preview`,downloadUrl:`/api/photos/${id}/download` };
 }
 
 export async function authorizePhotoViewer(repo, photoId, viewer) {
   const photo = await repo.getPhoto(photoId);
-  if (!photo) throw Object.assign(new Error('Photo not found.'), { status: 404, code: 'photo_not_found' });
+  if (!photo||photo.is_deleted) throw Object.assign(new Error('Photo not found.'), { status: 404, code: 'photo_not_found' });
   if (viewer.role === 'admin') return photo;
   if (viewer.role !== 'student' || photo.student_google_id !== viewer.studentId) throw Object.assign(new Error('Photo not found.'), { status: 404, code: 'photo_not_found' });
   if(standalonePhoto(photo))return photo;
@@ -294,6 +294,13 @@ async function routeApiWork(request,env,pathname,viewer){
   const nativeStatus=pathname.match(/^\/api\/native\/articles\/([^/]+)\/status$/);
   if(nativeStatus&&request.method==='PATCH'){requireAdmin(viewer);const found=await repo.getNativeArticle(nativeStatus[1]),input=await request.json();if(!found)throw Object.assign(new Error('Article not found.'),{status:404,code:'article_not_found'});if(!nativeStatuses.has(input.status)||input.status==='draft')throw Object.assign(new Error('Invalid article status.'),{status:400,code:'invalid_status'});return ok(nativeForViewer(await repo.setNativeStatus(found,input.status,viewer.sub),viewer),env);}
   if(pathname==='/api/photos'&&request.method==='GET')return ok((await repo.listPhotos(viewer.role==='student'?viewer.studentId:null)).map(photoForClient),env);
+  if(pathname==='/api/photos/trash'&&request.method==='GET'){requireAdmin(viewer);return ok((await repo.listPhotoTrash()).map(photoForClient),env);}
+  const photoRestore=pathname.match(/^\/api\/photos\/([^/]+)\/restore$/);
+  if(photoRestore&&request.method==='POST'){requireAdmin(viewer);return ok(photoForClient(await repo.restorePhoto(photoRestore[1],viewer.memberId)),env);}
+  const photoDelete=pathname.match(/^\/api\/photos\/([^/]+)$/);
+  if(photoDelete&&request.method==='DELETE'){requireAdmin(viewer);const input=await readSmallJson(request);if(input.confirmation!=='사진 삭제')throw Object.assign(new Error('사진 삭제 확인이 필요합니다.'),{status:400,code:'invalid_confirmation'});return ok(photoForClient(await repo.trashPhoto(photoDelete[1],viewer.memberId)),env);}
+  const photoPreview=pathname.match(/^\/api\/photos\/([^/]+)\/(preview|download)$/);
+  if(photoPreview&&request.method==='GET'){requireAdmin(viewer);const photo=await authorizePhotoViewer(repo,photoPreview[1],viewer);const fileId=encodeURIComponent(photo.drive_file_id),location=photoPreview[2]==='preview'?`https://drive.google.com/file/d/${fileId}/preview`:`https://drive.google.com/uc?export=download&id=${fileId}`;return new Response(null,{status:302,headers:{Location:location,'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer'}});}
   if(pathname==='/api/photos/upload-diagnostics'&&request.method==='POST'){requireStudent(viewer);return response({error:{code:'diagnostic_retired',message:'Temporary photo diagnostics have been retired.'}},410,env);}
   if(pathname==='/api/photos/folder-status'&&request.method==='GET'){requireAdmin(viewer);const folder=await driveFolderPreflight(env.DRIVE_UPLOAD_FOLDER_ID,viewer.accessToken);return ok({accessible:true,canAddChildren:folder.canAddChildren,storage:folder.driveId?'shared_drive':'my_drive'},env);}
   const photoStatus=pathname.match(/^\/api\/photos\/([^/]+)\/status$/);
@@ -303,7 +310,7 @@ async function routeApiWork(request,env,pathname,viewer){
   const photoContent=pathname.match(/^\/api\/photos\/([^/]+)\/content$/);
   if(photoContent&&request.method==='GET'){const photo=await authorizePhotoViewer(repo,photoContent[1],viewer);return photoContentResponse(photo,viewer.accessToken);}
   const photoOriginal=pathname.match(/^\/api\/photos\/([^/]+)\/original$/);
-  if(photoOriginal&&request.method==='GET'){const photo=await authorizePhotoViewer(repo,photoOriginal[1],viewer);if(standalonePhoto(photo))return photoContentResponse(photo,viewer.accessToken);return new Response(null,{status:302,headers:{Location:`https://drive.google.com/open?id=${encodeURIComponent(photo.drive_file_id)}`,'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer'}});}
+  if(photoOriginal&&request.method==='GET'){const photo=await authorizePhotoViewer(repo,photoOriginal[1],viewer);if(viewer.role==='student'&&standalonePhoto(photo))return photoContentResponse(photo,viewer.accessToken);return new Response(null,{status:302,headers:{Location:`https://drive.google.com/open?id=${encodeURIComponent(photo.drive_file_id)}`,'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer'}});}
   if(pathname==='/api/photos/upload'&&request.method==='POST'){
     requireStudent(viewer);const form=await request.formData(),file=form.get('file'),photoType=String(form.get('photoType')||'');
     if(form.get('copyright')!=='true')throw Object.assign(new Error('Rights confirmation is required.'),{status:400,code:'rights_confirmation_required'});
