@@ -7,7 +7,7 @@ const time=value=>value?new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',d
 export function createPhotoManager(service,{studentGroups,typeName,statusBadge}){
  let generation=0;
  const cancel=()=>{generation++;};
- async function load(root,path,paint){const stamp=++generation;root.innerHTML=loadingState('사진 불러오는 중…');try{const rows=await api(path);if(stamp===generation&&root.isConnected)paint(rows,stamp);}catch(error){if(stamp!==generation||!root.isConnected)return;root.innerHTML=`<p role="status">${e(error.message)}</p><button data-photo-retry>다시 시도</button>`;root.querySelector('[data-photo-retry]').onclick=()=>load(root,path,paint);}}
+ async function load(root,path,paint){const stamp=++generation;root.innerHTML=loadingState('사진 불러오는 중…');try{const rows=await api(path);if(stamp===generation&&root.isConnected)paint(rows,stamp);}catch(error){if(stamp!==generation||!root.isConnected)return;root.innerHTML=`<p role="status">${e(error.message)}</p><button data-overview-retry>다시 시도</button>`;root.querySelector('[data-overview-retry]').onclick=()=>load(root,path,paint);}}
  function invalidate(id){service.state.photos=service.state.photos.filter(p=>p.id!==id);service.resources.delete('photos');}
  function confirmDelete(photo,student,trigger,onSuccess){
   const d=document.createElement('dialog');d.className='upload-modal';d.setAttribute('aria-label','사진 삭제 확인');
