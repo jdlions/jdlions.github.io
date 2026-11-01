@@ -201,3 +201,8 @@ dialog{font-family:inherit}
 [data-code-field][hidden],.member-dialog [hidden]{display:none}.member-dialog [data-member-history]{overflow-wrap:anywhere}.member-detail-trigger{text-align:left;font-weight:600}
 
 [data-current-code]{white-space:pre-wrap;overflow-wrap:anywhere}[data-member-card]{cursor:pointer}
+
+/* Student activity stays within the existing panel system. */
+.activity-card{margin-block:16px}.activity-facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.activity-facts div{min-width:0;overflow-wrap:anywhere}.activity-facts dt{font-size:.8rem;opacity:.7}.activity-facts dd{margin:4px 0 0}.activity-card h3{overflow-wrap:anywhere}@media(max-width:600px){.activity-facts{grid-template-columns:minmax(0,1fr)}}
+
+.activity-filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}@media(max-width:1000px){.activity-filters{grid-template-columns:minmax(0,1fr)}}

@@ -16,8 +16,9 @@ export async function memberHistory(db,id,actor,page=0){
  let uncertain=tables.some(t=>!/^[a-z_]+$/.test(t.name));
  const safe=tables.filter(t=>/^[a-z_]+$/.test(t.name));
  const schema=await db.batch(safe.map(t=>db.prepare(`PRAGMA table_info("${t.name}")`)));
+ // Observational member_id rows cascade on member deletion; business ownership checks remain unchanged.
  const special=new Set(['members','member_audit','member_deletion_audit','member_legacy_students']);
- uncertain ||= safe.some((t,i)=>!special.has(t.name)&&schema[i].results.some(c=>!['slack_user_id','owner_slack_user_id'].includes(c.name)&&/(?:^|_)(student_id|google_id|google_sub|user_id|member_id|actor_id|owner_id|updated_by|created_by|uploaded_by)$/.test(c.name)&&!identityReferences[t.name]?.includes(c.name)));
+ uncertain ||= safe.some((t,i)=>!special.has(t.name)&&schema[i].results.some(c=>!(['student_activity_summary','student_activity_events'].includes(t.name)&&c.name==='member_id')&&!['slack_user_id','owner_slack_user_id'].includes(c.name)&&/(?:^|_)(student_id|google_id|google_sub|user_id|member_id|actor_id|owner_id|updated_by|created_by|uploaded_by)$/.test(c.name)&&!identityReferences[t.name]?.includes(c.name)));
  const unresolved=Number((await db.prepare('SELECT COUNT(*) n FROM member_legacy_students WHERE resolved_member_id IS NULL').first()).n)+Number((await db.prepare(unresolvedMemberOwnersSql).first()).n);
  const audit=Number((await db.prepare("SELECT COUNT(*) n FROM member_audit WHERE (member_id=? AND action!='registered') OR actor IN (?,?,?,?)").bind(m.id,m.id,m.google_sub,'oauth:'+m.google_sub,'signup:'+m.google_sub).first()).n);
  const external=Number((await db.prepare('SELECT COUNT(*) n FROM member_legacy_students WHERE resolved_member_id=? OR google_sub=?').bind(m.id,m.google_sub).first()).n);

@@ -24,6 +24,8 @@ export const editorialFiles = [
   'assets/js/config.js',
   'assets/js/admin/admin-app.js',
   'assets/js/admin/members.js',
+  'assets/js/admin/student-activity.js',
+  'assets/js/shared/assignment-activity.js',
   'assets/js/admin/student-overview.js',
   'assets/js/shared/student-identity.js',
   'assets/js/admin/issue-publishing.js',
