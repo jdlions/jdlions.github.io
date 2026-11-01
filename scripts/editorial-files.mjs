@@ -27,6 +27,7 @@ export const editorialFiles = [
   'assets/js/admin/student-activity.js',
   'assets/js/shared/assignment-activity.js',
   'assets/js/admin/student-overview.js',
+  'assets/js/admin/photo-manager.js',
   'assets/js/shared/student-identity.js',
   'assets/js/admin/issue-publishing.js',
   'assets/js/admin/editorial-files.js',
