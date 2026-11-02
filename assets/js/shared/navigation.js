@@ -14,5 +14,5 @@ export function createNavigation(render, beforeLeave=async()=>true) {
     return chain;
   };
   window.addEventListener('popstate',()=>navigate(read(),false,true));
-  return {navigate,start:()=>navigate(read(),true)};
+  return {navigate,replace(route){current=route;history.replaceState(null,'',url(route));},start:()=>navigate(read(),true)};
 }
