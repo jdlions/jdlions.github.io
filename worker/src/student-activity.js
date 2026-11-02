@@ -1,3 +1,4 @@
+import {activityStudentsSql,activityObservation} from './assignment-work.js';
 const WINDOW=5*60*1000,DAY=86400000;
 const gates=new Map();
 export function scheduleActivity(env,operation){
@@ -51,14 +52,6 @@ export async function pruneActivity(db,now=Date.now()){
 export async function activityOverview(db){
  const started=await db.prepare('SELECT started_at FROM student_activity_settings WHERE id=1').first();
  // Assignment owners may still use the pre-login member recipient identity.
- const rows=await db.prepare(`WITH tasks AS (
- SELECT i.student_id,count(*) total,sum(CASE WHEN a.status IN ('submitted','reviewing','hold','approved','scheduled') THEN 1 ELSE 0 END) submitted
- FROM assignment_slot_instances i JOIN assignment_campaigns c ON c.id=i.campaign_id LEFT JOIN articles a ON a.id=i.article_id
- WHERE c.status='active' GROUP BY i.student_id), pending AS (SELECT t.member_id,sum(s.quantity) total FROM member_assignment_targets t JOIN members m ON m.id=t.member_id JOIN assignment_campaigns c ON c.id=t.campaign_id JOIN assignment_slots s ON s.campaign_id=c.id WHERE m.google_sub IS NULL AND t.assigned_at IS NOT NULL AND c.status='active' GROUP BY t.member_id)
- SELECT m.id,m.name,m.active,m.last_login_at,s.*,
- coalesce(t.total,0)+coalesce(p.total,0)+coalesce(u.total,0) assigned_count,coalesce(t.submitted,0)+coalesce(p.submitted,0) submitted_count
- FROM members m LEFT JOIN student_activity_summary s ON s.member_id=m.id
- LEFT JOIN tasks t ON t.student_id=m.google_sub LEFT JOIN tasks p ON p.student_id='member:'||m.id LEFT JOIN pending u ON u.member_id=m.id
- WHERE m.role='student' ORDER BY s.last_seen_at IS NULL,s.last_seen_at DESC,m.name,m.id`).all();
- return {startedAt:started.started_at,serverNow:iso(Date.now()),eventRetentionDays:30,summaryRetentionDays:90,students:rows.results.map(r=>({id:r.id,name:r.name,active:!!r.active,lastSeenAt:r.last_seen_at,lastActivityType:r.last_activity_type,lastActivityAt:r.last_activity_at,assignmentViewAt:r.assignment_view_at,lastSubmitAt:r.last_submit_at,lastSubmitType:r.last_submit_type,lastSubmitOutcome:r.last_submit_outcome,lastErrorAt:r.last_error_at,lastErrorType:r.last_error_type,assignedCount:r.assigned_count,submittedCount:r.submitted_count,observation:r.last_seen_at?'observed':r.last_activity_at?'observed_without_access_time':!r.last_login_at?'no_login_record':r.last_login_at<started.started_at?'not_observed_since_launch':'no_retained_observation'}))};
+ const rows=await db.prepare(activityStudentsSql+' ORDER BY s.last_seen_at IS NULL,s.last_seen_at DESC,m.name,m.id').all();
+ return {startedAt:started.started_at,serverNow:iso(Date.now()),eventRetentionDays:30,summaryRetentionDays:90,students:rows.results.map(r=>({id:r.id,name:r.name,active:!!r.active,lastSeenAt:r.last_seen_at,lastActivityType:r.last_activity_type,lastActivityAt:r.last_activity_at,assignmentViewAt:r.assignment_view_at,lastSubmitAt:r.last_submit_at,lastSubmitType:r.last_submit_type,lastSubmitOutcome:r.last_submit_outcome,lastErrorAt:r.last_error_at,lastErrorType:r.last_error_type,assignedCount:r.assigned_count,submittedCount:r.submitted_count,observation:activityObservation(r,started.started_at)}))};
 }

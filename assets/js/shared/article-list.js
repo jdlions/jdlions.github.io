@@ -3,7 +3,7 @@ import {customSelect,initCustomSelect,escapeHtml,loadingState} from './ui.js';
 // One controller per list keeps its filters/cursor history while detail is open.
 export function createArticleList(service,{admin=false,overview=false,picker=false,free=false,render,bind=()=>{},busy=()=>{}}){
   const labels={draft:'작성 중',submitted:'제출됨',reviewing:'확인 중',revision_requested:'수정 요청',hold:'보류',approved:'승인',scheduled:'발행 예정'};
-  let ready=false,campaignOptionsKey;
+  let ready=false,campaignOptionsKey,routeKey;
   let root,sequence=0,abort,timer,position=0,cursors=[''],data,revision=-1;
   let filters=free?{campaign:'free'}:{};
   function cancel(){sequence++;abort?.abort();clearTimeout(timer);}
@@ -51,7 +51,8 @@ export function createArticleList(service,{admin=false,overview=false,picker=fal
     root.querySelectorAll('[data-page-prev],[data-page-next]').forEach(b=>b.disabled=true);
     if(debounce)timer=setTimeout(()=>load(),300);else load();
   }
-  function mount(container){
+  function mount(container,initialFilters){
+    if(initialFilters){const key=JSON.stringify(initialFilters);if(key!==routeKey){filters={...initialFilters};data=undefined;position=0;cursors=[''];routeKey=key;}}
     cancel();root=container;root.querySelectorAll('[data-custom-select]').forEach(x=>x._customSelect?.close(false));
     root.innerHTML=`${admin?'<div class="queue-stats" data-list-stats></div>':''}<div class="queue-tools panel"><input data-query aria-label="기사 검색" maxlength="200" placeholder="제목 · 작성자 · 과제 검색" value="${escapeHtml(filters.q||'')}">${picker?'':`${customSelect('status-filter','모든 상태',[['','모든 상태'],...Object.entries(labels)],{value:filters.status||''})}${customSelect('type-filter','모든 기사 유형',[['','모든 기사 유형'],['school','학교 기사'],['feature','피처'],['opinion','오피니언'],['culture','문화'],['sports','스포츠'],['other','기타']],{value:filters.type||''})}${free?'':'<span data-campaign-control></span>'}${overview?customSelect('grade-filter','전체 학년',[['','전체 학년'],['1','1학년'],['2','2학년']],{value:filters.grade||''}):''}${admin?`<input data-student-filter aria-label="작성자 검색" maxlength="200" placeholder="학생 ID 검색" value="${escapeHtml(filters.author||'')}"><input data-date-filter type="date" aria-label="제출일" value="${escapeHtml(filters.date||'')}">`:''}`}</div><div data-list-message role="status"></div><div data-list-results></div><div class="form-actions ${overview?'overview-actions':'article-pagination'}">${overview?'':'<button type="button" data-page-prev disabled>이전</button>'}<span data-page-range></span>${overview?'':'<button type="button" data-page-next disabled>다음</button>'}<button type="button" data-page-refresh>새로고침</button></div>`;
     root.querySelector('[data-query]').oninput=e=>change('q',e.target.value,true);

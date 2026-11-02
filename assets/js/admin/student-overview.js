@@ -1,5 +1,5 @@
-import {api} from '../services/api-client.js';
-import {escapeHtml as e,emptyState,loadingState} from '../shared/ui.js';
+import {createDashboard} from './dashboard.js';
+import {escapeHtml as e,emptyState} from '../shared/ui.js';
 import {compareStudents} from '../shared/student-identity.js';
 import {createPhotoManager} from './photo-manager.js';
 export const typeName=t=>({school:'학교기사',feature:'피처기사',opinion:'오피니언',culture:'문화',sports:'스포츠',other:'기타'}[t]||t||'기타');
@@ -9,17 +9,11 @@ export function studentGroups(rows){const groups=new Map();for(const row of rows
 export function articleCards(rows,renderRow,data){const groups=(data?.students||studentGroups(rows)).map(s=>({...s,rows:rows.filter(r=>r.studentId===s.studentId)})).sort(compareStudents);return `${data?.pendingMembers?.length?`<details class="panel"><summary>Google 계정 연결 대기 회원 ${data.pendingMembers.length}명</summary><p>기존 기사 소유자와 아직 연결되지 않은 회원입니다. 이름으로 합치지 않으며 최초 Google 로그인에서 확인합니다.</p><ul>${data.pendingMembers.map(m=>`<li>${e(m.name)}</li>`).join('')}</ul></details>`:''}${rows.some(r=>r.matches===false)?'<p class="muted overview-filter-note">검색 조건과 다른 기존 기사는 흐리게 표시합니다.</p>':''}<div class="student-grid compact-student-grid" data-queue>${groups.map(g=>`<article class="panel student-card compact-student-card"><h2>${e(g.name)}</h2>${['school','feature',...new Set(g.rows.map(r=>r.articleType).filter(t=>!['school','feature'].includes(t)))].map(type=>`<section class="compact-slot"><h3>${e(typeName(type))}</h3><div>${g.rows.filter(r=>r.articleType===type).map(renderRow).join('')||statusBadge('missing')}</div></section>`).join('')}</article>`).join('')||emptyState('대상 학생이 없습니다','검색 조건을 확인하세요.')}</div>`;}
 
 export function assignmentCards(rows){return `<div class="student-grid">${studentGroups(rows).map(g=>`<article class="panel student-card" data-assignment-card><h3>${e(g.name)}</h3>${['school','feature',...new Set(g.rows.map(r=>r.articleType).filter(t=>!['school','feature'].includes(t)))].map(type=>{const slots=g.rows.filter(r=>r.articleType===type);return `<section><h4>${e(typeName(type))}</h4>${slots.map(r=>`<button type="button" class="student-slot" data-progress-row data-type="${e(r.articleType)}" data-status="${e(r.articleStatus||'unwritten')}" data-student="${e((g.name+' '+g.studentId).toLowerCase())}" ${r.articleId?`data-review="${e(r.articleId)}"`:'disabled'}><span>${e(r.slotName)}${r.ordinal>1?' · '+r.ordinal:''}</span>${statusBadge(r.articleStatus||'unwritten')}</button>`).join('')||'<p class="muted">배정 없음</p>'}</section>`;}).join('')}</article>`).join('')||emptyState('대상 학생이 없습니다','과제를 배부하면 진행 상황이 표시됩니다.')}</div>`;}
-export function createAdminOverview(service){
- const photoManager=createPhotoManager(service,{studentGroups,typeName,statusBadge});
- let generation=0;
- const cancel=()=>{generation++;photoManager.cancel();};
- function load(root,fetchData,paint){const current=++generation;root.innerHTML=loadingState('불러오는 중…');const run=async()=>{root.innerHTML=loadingState('불러오는 중…');try{const data=await fetchData();if(current!==generation||!root.isConnected)return;paint(data);}catch(error){if(current!==generation||!root.isConnected)return;root.innerHTML=`<div class="notice notice--error" role="status">${e(error.message)} <button data-overview-retry>다시 시도</button></div>`;root.querySelector('[data-overview-retry]').onclick=run;}};void run();}
- function dashboard(root){load(root,()=>api('/api/admin/dashboard'),data=>{
-  const a=data.assignment,progress=a?.progress||[],types=['school','feature',...new Set(progress.map(p=>p.articleType).filter(t=>!['school','feature'].includes(t)))];
-  const summary=(photo)=>types.map(type=>{const p=progress.find(p=>p.articleType===type)||{total:0,submitted:0,withPhotos:0},value=photo?p.withPhotos:p.submitted;return `<div class="summary-progress"><span>${e(typeName(type))}${photo?' 사진':''}</span><strong>${value} / ${p.total}</strong><progress aria-label="${e(typeName(type))}${photo?' 사진':''} 제출 슬롯" max="${Math.max(1,p.total)}" value="${value}"></progress></div>`;}).join('');
-  root.innerHTML=`<header class="page-head"><div><p class="eyebrow">PrideDesk · 제작 현황</p><h1>대시보드</h1><p>진행 중인 과제와 편집 파일을 한눈에 확인합니다.</p></div></header><div class="dashboard-grid"><section class="panel dashboard-current"><p class="eyebrow">현재 과제 · 가장 최근 시작된 진행 과제</p><h2>${e(a?.campaign?.name||'진행 중 과제 없음')}</h2><p>제출한 슬롯 / 배부한 슬롯 · 복수 기사도 각각 집계합니다.</p>${data.errors?.assignment?`<p role="status">${e(data.errors.assignment)}</p>`:summary(false)}</section><section class="panel"><h2>사진 제출 현황</h2><p>사진이 1개 이상 연결된 기사 슬롯 기준</p>${data.errors?.assignment?`<p role="status">${e(data.errors.assignment)}</p>`:a?.campaign?summary(true):emptyState('진행 중 과제 없음','과제를 배부하면 사진 제출 현황이 표시됩니다.')}</section><section class="panel"><p class="eyebrow">최신 편집 파일 · 가장 최근 편집 프로젝트</p>${data.errors?.editorial?`<p role="status">${e(data.errors.editorial)}</p>`:data.editorial?`<h2>${data.editorial.year} ${e(data.editorial.season)}</h2><strong class="dashboard-version">v${String(data.editorial.version).padStart(3,'0')}</strong><p>마지막 편집: ${e(data.editorial.editorName)}</p>`:emptyState('편집 파일이 없습니다','편집 파일 메뉴에서 프로젝트를 시작하세요.')}</section></div><button data-dashboard-refresh>새로고침</button>`;
-  root.querySelector('[data-dashboard-refresh]').onclick=()=>dashboard(root);
- });}
- function photos(root){generation++;photoManager.photos(root);}
+export function createAdminOverview(service,{navigate=()=>{}}={}){
+ const controlDashboard=createDashboard(navigate);
+ const photoManager=createPhotoManager(service,{studentGroups,typeName,statusBadge,navigate});
+ const cancel=()=>{photoManager.cancel();controlDashboard.cancel();};
+ function dashboard(root){controlDashboard.render(root);}
+ function photos(root,route){photoManager.photos(root,route);}
  return {cancel,dashboard,photos};
 }

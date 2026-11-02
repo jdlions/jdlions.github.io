@@ -17,10 +17,11 @@ export function createEditorialFiles(){
   window.addEventListener('beforeunload',e=>{if(busy){e.preventDefault();e.returnValue='';}});
   const message=(text,error=false)=>{const el=root?.querySelector('[data-file-status]');if(el){if(el.textContent!==text)el.textContent=text;el.classList.toggle('notice--error',error);}};
   async function action(fn){if(busy)return;busy=true;const controls=[...root.querySelectorAll('button, input, textarea, select')].map(x=>[x,x.disabled]);controls.forEach(([x])=>x.disabled=true);try{await fn();}catch(e){message(e.message,true);}finally{busy=false;controls.forEach(([x,disabled])=>{if(x.isConnected)x.disabled=disabled;});}}
-  async function render(target){
+  async function render(target,route={}){
     root=target;const stamp=++generation;root.innerHTML=loadingState('편집 파일 불러오는 중…');
     try{
       const [projects,editors]=await Promise.all([api(base+'/projects'),api(base+'/editors')]);if(stamp!==generation||!root.isConnected)return;operator=editors.operatorRole||'';
+      if(route.project&&projects.some(p=>p.id===route.project))selected=route.project;
       if(!projects.some(p=>p.id===selected))selected=projects[0]?.id||'';
       root.innerHTML=`<header class="page-head"><div><p class="eyebrow">PrideDesk</p><h1>편집 파일</h1><p>편집 시작 후 최신본을 수정하고 새 버전을 올려주세요. 원본은 모두 보존됩니다.</p></div></header><div role="status" aria-live="polite" data-file-status></div><section class="panel"><label class="field">현재 작업자<select data-file-operator><option value="">작업자 선택</option>${editors.editors.map(e=>`<option value="${e.role}" ${e.name?'':'disabled'}>${roles[e.role]} ${esc(e.name||'이름 미설정')}</option>`).join('')}</select></label><p>공용 계정을 사용하므로 본인의 역할을 선택해 주세요. 편집 상태는 서버에 보관됩니다.</p></section><label class="field">편집 프로젝트<select data-file-project>${projects.map(p=>`<option value="${p.id}">${p.year} ${p.season} Edition</option>`).join('')}</select></label><details class="panel"><summary>새 편집 프로젝트</summary><form data-project-form class="form-grid"><label class="field">연도<input name="year" type="number" min="2020" max="2100" value="${new Date().getFullYear()}" required></label><label class="field">계절<select name="season"><option>Summer</option><option>Winter</option></select></label><button class="btn-primary">프로젝트 만들기</button></form><p>연도·계절별 전용 private Drive 폴더를 만듭니다. 신문 발행과는 별도로 관리됩니다.</p></details><div data-file-detail></div>`;
       const select=root.querySelector('[data-file-project]');select.value=selected;select.onchange=()=>{selected=select.value;show();};

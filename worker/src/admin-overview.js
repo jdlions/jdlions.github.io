@@ -21,24 +21,7 @@ export async function articleStudentOverview(db,roster=[]){
   const pendingMembers=roster.filter(s=>s.identityState==='unlinked').map(s=>({id:s.id,name:s.name}));
   return {students:[...students.values()],pendingMembers,items,campaigns:[...campaigns.values()]};
 }
-export async function dashboardSummary(db){
-  const campaignQuery=async()=>{
-    const campaign=await db.prepare("SELECT id,name,year,issue_label issueLabel FROM assignment_campaigns WHERE status='active' AND (starts_at IS NULL OR starts_at<=?) ORDER BY COALESCE(starts_at,created_at) DESC,created_at DESC,id DESC LIMIT 1").bind(new Date().toISOString()).first();
-    if(!campaign)return {campaign:null,progress:[]};
-    const progress=await rows(db,`SELECT s.article_type articleType,COUNT(*) total,
-      SUM(CASE WHEN a.status IN ('submitted','reviewing','revision_requested','hold','approved','scheduled') THEN 1 ELSE 0 END) submitted,
-      SUM(CASE WHEN EXISTS(SELECT 1 FROM photos p WHERE p.article_id=a.id AND p.is_deleted=0) THEN 1 ELSE 0 END) withPhotos
-      FROM assignment_slot_instances i JOIN assignment_slots s ON s.id=i.slot_id LEFT JOIN articles a ON a.id=i.article_id
-      WHERE i.campaign_id=? GROUP BY s.article_type`,[campaign.id]);
-    return {campaign,progress};
-  };
-  const editorialQuery=()=>db.prepare(`SELECT p.year,p.season,v.version,v.editor_name editorName FROM editorial_projects p
-    JOIN editorial_versions v ON v.project_id=p.id AND v.version=p.latest_version AND v.state='complete' AND v.state!='cancelled'
-    ORDER BY p.year DESC,CASE p.season WHEN 'Winter' THEN 1 ELSE 0 END DESC,p.id DESC LIMIT 1`).first();
-  const [assignment,editorial]=await Promise.allSettled([campaignQuery(),editorialQuery()]);
-  return {assignment:assignment.status==='fulfilled'?assignment.value:null,editorial:editorial.status==='fulfilled'?editorial.value:null,
-    errors:{...(assignment.status==='rejected'?{assignment:'과제 요약을 불러오지 못했습니다.'}:{}),...(editorial.status==='rejected'?{editorial:'편집 파일 요약을 불러오지 못했습니다.'}:{})}};
-}
+export {dashboardSummary} from './dashboard.js';
 export async function photoStudentSummary(db){
   return rows(db,`WITH scope AS (
     SELECT i.student_id,i.article_id,s.article_type,i.campaign_id,r.student_name,0 photo_only
